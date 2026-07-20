@@ -1,0 +1,42 @@
+{
+  "name": "graphpaper",
+  "version": "0.1.0",
+  "description": "Framework-agnostic diagram renderer — lay out a neutral node/edge DiagramModel with ELK and render interactive SVG.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./diagram.css": "./diagram.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "index.d.ts",
+    "diagram.css",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "diagram",
+    "graph",
+    "elk",
+    "svg",
+    "layout",
+    "visualization",
+    "architecture"
+  ],
+  "peerDependencies": {
+    "elkjs": "^0.10.2"
+  },
+  "peerDependenciesMeta": {
+    "elkjs": {
+      "optional": true
+    }
+  }
+}
