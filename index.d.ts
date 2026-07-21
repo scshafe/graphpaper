@@ -136,6 +136,12 @@ export interface DiagramRenderOptions {
   hierarchyEdgeTypes?: string[];
   compact?: boolean;
   showPopovers?: boolean;
+  /**
+   * Hover-dwell (ms) before the informational popover appears on pointer hover: the pointer must
+   * rest on a node continuously for this long. Focus (keyboard) navigation still shows the popover
+   * immediately. `0` disables the debounce (legacy immediate-on-hover). Default `2000`.
+   */
+  popoverHoverDelayMs?: number;
   visibleRows?: number;
   showEdgeLabels?: boolean;
   minWidth?: number;

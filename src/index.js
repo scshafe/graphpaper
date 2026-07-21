@@ -25,6 +25,10 @@ const delegatedDiagramPopoverBindings = new WeakMap();
 let activePopoverTarget = null;
 let popoverHideTimer = null;
 let popoverHideTimerWindow = null;
+// Hover-dwell debounce: the informational popover only appears after the pointer has rested on a
+// node continuously for `popoverHoverDelayMs` (default 2000). Mirrors the hide-timer pair below.
+let popoverShowTimer = null;
+let popoverShowTimerWindow = null;
 
 function diagramDocumentFor(target = activePopoverTarget, root = globalThis) {
   return target?.ownerDocument ?? root?.document ?? null;
@@ -231,6 +235,13 @@ function getElkLayoutEngine() {
   return elkLayoutEngine;
 }
 
+/** Fold for the hover-dwell option (mirrors normalizeScopeTransition): a finite value is clamped to
+ *  >= 0; anything else (undefined/NaN/non-number) falls back to the 2000ms default. Exported so the
+ *  default + clamping are unit-testable without reaching the private normalizeOptions. */
+export function normalizePopoverHoverDelayMs(value) {
+  return Number.isFinite(value) ? Math.max(0, value) : 2000;
+}
+
 function normalizeOptions(options = {}) {
   return {
     direction: options.direction ?? "RIGHT",
@@ -239,6 +250,10 @@ function normalizeOptions(options = {}) {
     hierarchyEdgeTypes: options.hierarchyEdgeTypes ?? ["contains"],
     compact: options.compact ?? false,
     showPopovers: options.showPopovers ?? true,
+    // Hover-dwell (ms) before the informational popover appears on pointer hover; the pointer must
+    // rest on the node this long continuously. Focus (keyboard) still shows immediately. 0 = no
+    // debounce (legacy immediate-on-hover). Default 2000.
+    popoverHoverDelayMs: normalizePopoverHoverDelayMs(options.popoverHoverDelayMs),
     visibleRows: options.visibleRows ?? 5,
     showEdgeLabels: options.showEdgeLabels ?? false,
     minWidth: options.minWidth ?? 680,
@@ -1173,9 +1188,35 @@ function scheduleHideDiagramPopover(target = activePopoverTarget, delay = 140) {
   popoverHideTimer = browserWindow?.setTimeout ? browserWindow.setTimeout(() => hideDiagramPopover(target), delay) : globalThis.setTimeout(() => hideDiagramPopover(target), delay);
 }
 
+function clearDiagramPopoverShowTimer() {
+  if (!popoverShowTimer) return;
+  if (popoverShowTimerWindow?.clearTimeout) popoverShowTimerWindow.clearTimeout(popoverShowTimer);
+  else globalThis.clearTimeout(popoverShowTimer);
+  popoverShowTimer = null;
+  popoverShowTimerWindow = null;
+}
+
+// Hover-dwell debounce for the informational popover: only reveal `target`'s popover once the
+// pointer has stayed on it for `delay` ms. Any competing show/hide/leave clears the pending timer
+// (see clearDiagramPopoverShowTimer callers), so moving away before the dwell elapses shows nothing
+// and moving between nodes restarts the dwell. A non-positive delay shows immediately (keeps the
+// focus / opt-out paths synchronous).
+function scheduleShowDiagramNodePopover(target, node, delay) {
+  clearDiagramPopoverShowTimer();
+  // A new dwell supersedes any pending hide (e.g. a jittery leave-and-return on the same node):
+  // otherwise the stale ~140ms hide would fire mid-dwell and cancel the fresh show timer.
+  clearDiagramPopoverHideTimer();
+  if (!(delay > 0)) { showDiagramNodePopover(target, node); return; }
+  const browserWindow = diagramWindowFor(target);
+  popoverShowTimerWindow = browserWindow;
+  const fire = () => { popoverShowTimer = null; popoverShowTimerWindow = null; showDiagramNodePopover(target, node); };
+  popoverShowTimer = browserWindow?.setTimeout ? browserWindow.setTimeout(fire, delay) : globalThis.setTimeout(fire, delay);
+}
+
 export function hideDiagramPopover(target = activePopoverTarget) {
   const documentRef = diagramDocumentFor(target);
   clearDiagramPopoverHideTimer();
+  clearDiagramPopoverShowTimer();
   if (target) target.removeAttribute("aria-describedby");
   activePopoverTarget = null;
   const popover = diagramPopoverForDocument(documentRef);
@@ -1292,6 +1333,7 @@ function positionDiagramPopover(target, popover) {
 
 function showDiagramNodePopover(target, node) {
   clearDiagramPopoverHideTimer();
+  clearDiagramPopoverShowTimer();
   const popover = ensureDiagramPopover(target);
   if (!popover) return;
   activePopoverTarget?.removeAttribute("aria-describedby");
@@ -1342,37 +1384,54 @@ export function cleanupHydratedDiagram(container) {
   }
 }
 
-function bindDiagramPopovers(container, diagram, options) {
+// Exported for tests (drive hover/focus/leave against a fake DOM + fake timers). Consumers normally
+// reach this via hydrateDiagram; direct use is fine for a host that lays out its own SVG.
+export function bindDiagramPopovers(container, diagram, options) {
   unbindDelegatedDiagramPopovers(container);
   hideDiagramPopover();
   if (!options.showPopovers) return;
   const byId = new Map((diagram.nodes ?? []).map((node) => [node.id, node]));
-  const show = (event) => {
+  // Idempotent for the normal path (options are pre-normalized by hydrateDiagram); also gives a
+  // direct external caller the documented 2000ms default instead of a silent 0.
+  const hoverDelay = normalizePopoverHoverDelayMs(options.popoverHoverDelayMs);
+  const nodeFromEvent = (event) => {
     const element = diagramNodeEventTarget(event.target, container);
-    if (!element || stayedInsideDiagramNode(element, event.relatedTarget)) return;
+    if (!element || stayedInsideDiagramNode(element, event.relatedTarget)) return null;
     const node = byId.get(element.getAttribute("data-diagram-node"));
-    if (!node) return;
-    showDiagramNodePopover(element, node);
+    return node ? { element, node } : null;
+  };
+  // Hover: debounced by `hoverDelay` — the pointer must dwell on the node before the popover shows.
+  const showHover = (event) => {
+    const hit = nodeFromEvent(event);
+    if (hit) scheduleShowDiagramNodePopover(hit.element, hit.node, hoverDelay);
+  };
+  // Focus (keyboard): deliberate navigation, so show immediately — never make a keyboard user wait.
+  const showFocus = (event) => {
+    const hit = nodeFromEvent(event);
+    if (hit) showDiagramNodePopover(hit.element, hit.node);
   };
   const scheduleHide = (event) => {
-    const element = diagramNodeEventTarget(event.target, container);
-    if (!element || stayedInsideDiagramNode(element, event.relatedTarget)) return;
-    scheduleHideDiagramPopover(element);
+    const hit = nodeFromEvent(event);
+    if (!hit) return;
+    // Leaving the node before its dwell elapsed cancels the pending show (so nothing ever appears).
+    clearDiagramPopoverShowTimer();
+    scheduleHideDiagramPopover(hit.element);
   };
   const hide = (event) => {
-    const element = diagramNodeEventTarget(event.target, container);
-    if (!element || stayedInsideDiagramNode(element, event.relatedTarget)) return;
-    hideDiagramPopover(element);
+    const hit = nodeFromEvent(event);
+    if (hit) hideDiagramPopover(hit.element);
   };
-  container.addEventListener("pointerover", show);
+  container.addEventListener("pointerover", showHover);
   container.addEventListener("pointerout", scheduleHide);
-  container.addEventListener("focusin", show);
+  container.addEventListener("focusin", showFocus);
   container.addEventListener("focusout", hide);
   delegatedDiagramPopoverBindings.set(container, () => {
-    container.removeEventListener("pointerover", show);
+    container.removeEventListener("pointerover", showHover);
     container.removeEventListener("pointerout", scheduleHide);
-    container.removeEventListener("focusin", show);
+    container.removeEventListener("focusin", showFocus);
     container.removeEventListener("focusout", hide);
+    // Drop any pending hover-dwell so a torn-down diagram can't pop a popover after unbind.
+    clearDiagramPopoverShowTimer();
   });
 }
 
