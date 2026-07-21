@@ -55,6 +55,44 @@ await hydrateDiagram(el, topology, {
 `nodeHasScope(node, options?)` is the synchronous render-time predicate (inline `scope`,
 `metadata.scopeRef`, or an `options.hasScope(node)` callback).
 
+### Drilling back up — outer boundary + click-outside / Escape
+
+Once you've drilled into a sub-diagram, that nested level draws an **outer boundary**: an inset
+dashed frame with a top-left label (`‹ <parent> · click outside to zoom out`) and a full-canvas
+transparent exit backdrop. **Clicking any empty canvas** — or pressing **Escape** — pops exactly
+one level (the spatial "zoom out one step"); the breadcrumb still covers arbitrary multi-level
+jumps and stays the keyboard/assistive-tech path. Nodes and the dig-in glyph paint above the
+backdrop, so clicking them never exits. On, both boundary and breadcrumb appear once nested; the
+root level shows neither.
+
+```js
+await hydrateDiagram(el, topology, {
+  drillDown: true,
+  resolveScope,
+  scopeExitOnBackground: true, // default — boundary + click-outside/Escape drill-up
+  scopeBreadcrumb: true,       // default — set false for a boundary-only UX
+});
+```
+
+- `scopeExitOnBackground` (default `true`) gates both the boundary render and the click/Escape
+  gesture. Set `false` for a read-only child that shows no exit affordance and never intercepts
+  background clicks.
+- `scopeBreadcrumb` (default `true`) gates the breadcrumb bar — set `false` for boundary-only, or
+  when a host drives its own chrome via `onScopeChange`.
+
+The parent's title flows into the boundary label automatically via a reserved
+`metadata.scopeOfTitle` key (auto-stamped on drill-in beside `metadata.scopeOf`); a host that
+stores children with a pre-set `scopeOf` may pre-set `scopeOfTitle` too.
+
+### Multi-diagram forest
+
+Because a scope is linked by-reference (`metadata.scopeRef` + an async `resolveScope`), a whole
+**forest** of independently authored/stored diagrams composes: each `resolveScope` returns a
+standalone `DiagramModel`, whose own nodes may carry further `scopeRef`s to go deeper, unbounded.
+The stack tracks the **path**, not identity — the same stored child referenced from two parents
+returns to the correct parent per traversal, and a rendered-standalone child (no `scopeOf`) shows
+no boundary, since it is a valid top-level diagram on its own.
+
 ## Lifecycle marking (deprecated / expired / …)
 
 A diagram can declare a lifecycle state so a stale graph can never be mistaken for the current

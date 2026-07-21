@@ -167,3 +167,8 @@
 .diagram-scope-crumb:hover { background: rgba(108, 182, 255, 0.12); }
 .diagram-scope-crumb-current { color: var(--gp-text, var(--text, #eff6ff)); cursor: default; font-weight: 600; }
 .diagram-scope-crumb-sep { color: var(--gp-muted, var(--muted, #9fb0c8)); }
+/* ---- Scope / drill-down — outer boundary + click-outside exit (P1) ---- */
+.diagram-scope-boundary { fill: none; stroke: var(--gp-line, var(--line, rgba(183, 203, 231, 0.28))); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.diagram-scope-exit-backdrop { cursor: zoom-out; }
+.diagram-scope-boundary-label-bg { fill: rgba(8, 17, 31, 0.86); stroke: var(--gp-line, var(--line, rgba(183, 203, 231, 0.18))); stroke-width: 1; }
+.diagram-scope-boundary-label-text { fill: var(--gp-muted, var(--muted, #9fb0c8)); font-size: 12px; dominant-baseline: middle; }

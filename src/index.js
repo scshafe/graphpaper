@@ -89,7 +89,9 @@ function readTagAttributes(tagMarkup) {
   return attributes;
 }
 
-function assertDiagramSvgMarkupSafeForDomReplacement(markup) {
+// Exported for tests (P1 scope-linking asserts the injected boundary markup is SVG-safe); keep
+// the export narrow — it is otherwise an internal guard on the string→DOM replacement path.
+export function assertDiagramSvgMarkupSafeForDomReplacement(markup) {
   for (const tagMarkup of markup.match(/<[^>]+>/g) ?? []) {
     const tagName = tagMarkup.match(/^<\s*\/?\s*([^\s>/]+)/)?.[1]?.toLowerCase() ?? "";
     if (tagName === "script" || tagName === "foreignobject") {
@@ -261,6 +263,12 @@ function normalizeOptions(options = {}) {
     resolveScope: typeof options.resolveScope === "function" ? options.resolveScope : null,
     hasScope: typeof options.hasScope === "function" ? options.hasScope : null,
     onScopeChange: typeof options.onScopeChange === "function" ? options.onScopeChange : null,
+    // P1 scope-linking. `scopeExitOnBackground` (default true) gates BOTH the outer-boundary
+    // render and the click-outside/Escape drill-UP gesture — but only when a level is actually a
+    // scope child under drillDown, so root/non-drill renders stay byte-identical regardless.
+    // `scopeBreadcrumb` (default true) gates the breadcrumb bar for boundary-only / host-driven UX.
+    scopeExitOnBackground: options.scopeExitOnBackground ?? true,
+    scopeBreadcrumb: options.scopeBreadcrumb ?? true,
     // Staged process diagrams. Stage machinery activates only when the MODEL declares ≥2
     // stages (diagramStages) — un-staged models render byte-identically regardless of these.
     stageControls: options.stageControls ?? true,
@@ -831,7 +839,11 @@ function renderTableNode(node, position, options) {
 /** P0-B3: the extra class marking a node as a drill-down scope portal (drillDown only).
  *  P1-B2: never mark the current level's own scope root (you are already inside it). */
 function scopedNodeClass(node, options) {
-  if (options.scopeRootId && node.id === options.scopeRootId) return "";
+  // `!= null` (not a truthy check) to match the boundary gate (renderDiagramSvg): a level with a
+  // falsy-but-non-null scopeOf ("", 0, false) is still a scope child, so its own self-drill glyph
+  // must be suppressed here consistently. Real models never hit this (root levels carry no scopeOf
+  // → null; enterNodeScope stamps a truthy node.id); it only closes a degenerate-node-id gap.
+  if (options.scopeRootId != null && node.id === options.scopeRootId) return "";
   return options.drillDown && nodeHasScope(node, options) ? "diagram-node-scoped" : "";
 }
 
@@ -843,7 +855,9 @@ function scopeAffordanceMarkup(node, width, options) {
   if (!options.drillDown || !nodeHasScope(node, options)) return "";
   // P1-B2: no "dig in" glyph on the current level's scope root — re-entering its own scope is a
   // no-op self-drill. `scopeRootId` is set (in renderDiagramSvg) only for a scope sub-diagram.
-  if (options.scopeRootId && node.id === options.scopeRootId) return "";
+  // `!= null` (not truthy) to stay consistent with the boundary gate / scopedNodeClass above so a
+  // falsy-but-non-null scopeOf is treated as a scope child on all three sites.
+  if (options.scopeRootId != null && node.id === options.scopeRootId) return "";
   const size = 18;
   const x = Math.max(0, width - size - 8);
   const y = 8;
@@ -851,6 +865,37 @@ function scopeAffordanceMarkup(node, width, options) {
     <rect class="diagram-scope-affordance-hit" x="${x.toFixed(1)}" y="${y}" width="${size}" height="${size}" rx="4"></rect>
     <text class="diagram-scope-affordance-glyph" x="${(x + size / 2).toFixed(1)}" y="${y + size - 5}" text-anchor="middle">⤢</text>
   </g>`;
+}
+
+/** P1 scope-linking: the outer boundary rendered on a nested scope child (drillDown +
+ *  `options.scopeRootId` set + `scopeExitOnBackground !== false`). Three SVG elements in paint
+ *  order (lowest first), rendered in diagram/layout coordinates so they track pan/zoom for free:
+ *   (a) a full-viewBox TRANSPARENT exit backdrop — the only interactive element; a click on empty
+ *       canvas hits it directly (nodes paint above as siblings) and the delegated scope listener
+ *       reads `data-diagram-scope-exit` off it to pop one level;
+ *   (b) an inset dashed visible frame (`pointer-events:none`) sitting inside the 32px layout
+ *       padding so it never overlaps node geometry — a purely spatial cue;
+ *   (c) a top-left decorative label chip (`aria-hidden`) naming the parent scope.
+ *  Empty string on any root/non-drill level, so those renders stay byte-identical. */
+function renderScopeBoundary(layout, diagram, options) {
+  const width = layout.width;
+  const height = layout.height;
+  const inset = DEFAULT_LAYOUT_PADDING / 2; // 16 — inside the 32px layout padding
+  const frameW = width - 2 * inset;
+  const frameH = height - 2 * inset;
+  const scopeOfTitle = diagram?.metadata?.scopeOfTitle ?? "parent scope";
+  // Same escaping helper the rest of renderDiagramSvg uses for node text.
+  const labelText = `‹ ${shortRef(scopeOfTitle, 32)} · click outside to zoom out`;
+  const labelX = inset + 8;
+  const labelY = inset + 8;
+  const chipW = Math.min(Math.max(labelText.length * 6.6 + 16, 0), Math.max(frameW - 16, 0));
+  const chipH = 22;
+  return `<rect class="diagram-scope-exit-backdrop" aria-hidden="true" data-diagram-scope-exit="1" x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
+      <rect class="diagram-scope-boundary" aria-hidden="true" pointer-events="none" x="${inset}" y="${inset}" width="${frameW}" height="${frameH}" rx="12"></rect>
+      <g class="diagram-scope-boundary-label" pointer-events="none" aria-hidden="true">
+        <rect class="diagram-scope-boundary-label-bg" x="${labelX}" y="${labelY}" width="${chipW.toFixed(1)}" height="${chipH}" rx="6"></rect>
+        <text class="diagram-scope-boundary-label-text" x="${labelX + 8}" y="${labelY + chipH / 2}">${esc(labelText)}</text>
+      </g>`;
 }
 
 function renderComponentNode(node, position, options) {
@@ -938,6 +983,15 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
     return [renderer.render(node, position, options)];
   }).join("");
 
+  // P1 scope-linking: the outer boundary + exit backdrop, only on a nested scope child under
+  // drillDown (gated exactly like the "dig in" glyph so root/non-drill renders stay byte-identical).
+  // Injected between the edge and node groups below so the backdrop is a SIBLING beneath the nodes
+  // (never their ancestor) — that keeps hit-testing DOM-only in bindDiagramScopeNavigation.
+  const scopeBoundary =
+    (options.drillDown && options.scopeRootId != null && options.scopeExitOnBackground !== false)
+      ? renderScopeBoundary(layout, diagram, options)
+      : "";
+
   // The lifecycle badge rides the figcaption (crisp HTML, outside pan/zoom); the watermark
   // rides INSIDE the SVG so a standalone export still carries the marking unmistakably.
   const lifecycleBadge = lifecycle
@@ -962,7 +1016,8 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
         <marker id="${markerId}" class="diagram-arrow-marker" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker>
         <marker id="${flowMarkerId}" class="diagram-arrow-marker diagram-arrow-marker-flow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker>
       </defs>
-      <g class="map-edges">${edges}</g>
+      <g class="map-edges">${edges}</g>${scopeBoundary ? `
+      ${scopeBoundary}` : ""}
       <g class="map-nodes">${nodeGroups}</g>${watermark ? `
       ${watermark}` : ""}
     </svg>`;
@@ -1276,12 +1331,22 @@ async function enterNodeScope(container, node, options) {
   // `resolveScope`, MC's containment resolver alike), not only those that stamp it themselves. A
   // model that already carries `scopeOf` wins (idempotent). Shallow copy — never mutate the
   // consumer's own model object; the copy is what the stack re-renders + `onScopeChange` reports.
-  const scopedModel = { ...sub, metadata: { ...(sub.metadata ?? {}), scopeOf: sub.metadata?.scopeOf ?? node.id } };
+  // Alongside `scopeOf` (the back-pointer node id), stamp `scopeOfTitle` — the parent's display
+  // title — so the pure renderer's outer-boundary label (renderScopeBoundary) can name the parent
+  // scope without a stack. A host that pre-stamped either key wins (idempotent).
+  const scopedModel = {
+    ...sub,
+    metadata: {
+      ...(sub.metadata ?? {}),
+      scopeOf: sub.metadata?.scopeOf ?? node.id,
+      scopeOfTitle: sub.metadata?.scopeOfTitle ?? (node.title ?? node.id)
+    }
+  };
   const stack = diagramScopeStack(container).slice();
   stack.push({ title: node.title ?? node.id, model: scopedModel });
   diagramScopeStacks.set(container, stack);
   emitScopeChange(container, options);
-  await renderDiagramLevel(container, scopedModel, options);
+  await renderDiagramLevel(container, scopedModel, options, { restoreFocus: true });
 }
 
 async function exitToScopeDepth(container, depth, options) {
@@ -1289,7 +1354,7 @@ async function exitToScopeDepth(container, depth, options) {
   if (stack.length === 0) return;
   diagramScopeStacks.set(container, stack);
   emitScopeChange(container, options);
-  await renderDiagramLevel(container, stack[stack.length - 1].model, options);
+  await renderDiagramLevel(container, stack[stack.length - 1].model, options, { restoreFocus: true });
 }
 
 function emitScopeChange(container, options) {
@@ -1313,26 +1378,97 @@ function scopeEnterTargetFor(target, container) {
   return null;
 }
 
+/** P1 scope-linking: the drill-UP mirror of `scopeEnterTargetFor`. Ancestor-walks from a clicked
+ *  target up to (not including) the container. A `data-diagram-node` or `data-diagram-scope-enter`
+ *  ancestor short-circuits to null (a node click, or the dig-in glyph, is NOT an exit); the exit
+ *  backdrop's `data-diagram-scope-exit` matches. Because the backdrop is a leaf sibling of the node
+ *  groups (never their ancestor), paint-order alone discriminates — no geometry math. Exported for
+ *  tests; usable with plain objects exposing getAttribute(name) + parentNode (no real DOM needed). */
+export function scopeExitTargetFor(target, container) {
+  let cursor = target;
+  while (cursor && cursor !== container) {
+    if (cursor.getAttribute?.("data-diagram-node")) return null;        // a node click ≠ exit
+    if (cursor.getAttribute?.("data-diagram-scope-enter")) return null; // the dig-in glyph is enter
+    if (cursor.getAttribute?.("data-diagram-scope-exit")) return cursor;
+    cursor = cursor.parentNode;
+  }
+  return null;
+}
+
+// P1 scope-linking: below this client-space travel, a pointerdown→up is a click (exit); above it
+// the gesture was a drag/pan and must NOT trigger a background exit.
+const EXIT_MOVE_THRESHOLD = 6;
+
+/** P1 scope-linking: the target stack depth for a ONE-LEVEL drill-UP (background click / Escape).
+ *  `exitToScopeDepth(container, depth)` slices the stack to `depth+1`, so popping exactly one frame
+ *  off a stack of length N means depth = N-2 (N-1 keeps the current level; N-2 lands on its parent).
+ *  Single source of truth for the "zoom out exactly one step" contract, shared by the click + Escape
+ *  handlers. Exported (pure, tiny) so the depth math is unit-testable without the DOM/stack WeakMap. */
+export function scopeExitOneLevelDepth(stackLength) {
+  return stackLength - 2;
+}
+
 function bindDiagramScopeNavigation(container, diagram, options) {
   unbindDiagramScopeNavigation(container);
   const byId = new Map((diagram.nodes ?? []).map((node) => [node.id, node]));
-  const activate = (event) => {
-    const trigger = scopeEnterTargetFor(event.target, container);
-    if (!trigger) return;
-    const node = byId.get(trigger.getAttribute("data-diagram-scope-enter"));
-    if (!node) return;
+  // Pan-vs-click disambiguation: with panZoom on, a drag-to-pan release also fires `click`. Track
+  // pointer travel from the pointerdown origin and set `moved` past EXIT_MOVE_THRESHOLD so a pan
+  // release never pops a scope level. Reset on every pointerdown.
+  let moved = false;
+  let downX = 0;
+  let downY = 0;
+  const onDown = (event) => {
+    moved = false;
+    downX = event.clientX ?? 0;
+    downY = event.clientY ?? 0;
+  };
+  const onMove = (event) => {
+    if (moved) return;
+    const dx = (event.clientX ?? 0) - downX;
+    const dy = (event.clientY ?? 0) - downY;
+    if (Math.abs(dx) > EXIT_MOVE_THRESHOLD || Math.abs(dy) > EXIT_MOVE_THRESHOLD) moved = true;
+  };
+  const exitOneLevel = (event) => {
+    const stack = diagramScopeStack(container);
+    if (stack.length <= 1) return; // already at root
     event.preventDefault?.();
     hideDiagramPopover();
-    void enterNodeScope(container, node, options);
+    void exitToScopeDepth(container, scopeExitOneLevelDepth(stack.length), options); // pop exactly ONE level
+  };
+  const activate = (event) => {
+    const trigger = scopeEnterTargetFor(event.target, container);
+    if (trigger) {
+      const node = byId.get(trigger.getAttribute("data-diagram-scope-enter"));
+      if (!node) return;
+      event.preventDefault?.();
+      hideDiagramPopover();
+      void enterNodeScope(container, node, options);
+      return;
+    }
+    // P1 background-click drill-UP: only on a real empty-canvas click (backdrop match), never a pan.
+    if (options.scopeExitOnBackground === false) return;
+    if (moved) return;
+    if (!scopeExitTargetFor(event.target, container)) return;
+    exitOneLevel(event);
   };
   const onKey = (event) => {
+    // P1 keyboard drill-UP: Escape pops one level (the keyboard-reachable mirror of background click).
+    if (event.key === "Escape") {
+      if (options.scopeExitOnBackground === false) return;
+      exitOneLevel(event);
+      return;
+    }
     if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
     if (!scopeEnterTargetFor(event.target, container)) return;
     activate(event);
   };
+  container.addEventListener("pointerdown", onDown);
+  container.addEventListener("pointermove", onMove);
   container.addEventListener("click", activate);
   container.addEventListener("keydown", onKey);
   diagramScopeBindings.set(container, () => {
+    container.removeEventListener("pointerdown", onDown);
+    container.removeEventListener("pointermove", onMove);
     container.removeEventListener("click", activate);
     container.removeEventListener("keydown", onKey);
   });
@@ -1473,7 +1609,28 @@ function bindDiagramStageControls(container, diagram, options) {
 // The factored per-scope render (layout → SVG → popovers → panZoom → scope nav + breadcrumb).
 // Both the public hydrateDiagram and the drill-down enter/exit transitions call this; only the
 // stack management differs (hydrateDiagram resets it, enter/exit mutate it first).
-async function renderDiagramLevel(container, diagram, options) {
+// P1 scope-linking: after a scope transition (drill-in glyph, background click, Escape, or a
+// breadcrumb jump) the whole SVG subtree is swapped, so a previously-focused node/glyph is gone
+// and focus would silently fall to <body>. Move focus to a stable landmark so keyboard users are
+// not stranded: the current breadcrumb crumb (a real <button>) when present, else the container
+// itself if it can hold focus. Fully optional-chained + try/guarded so it no-ops outside a DOM
+// (the pure-render tests never reach here) and never breaks navigation. Only a scope TRANSITION
+// restores focus — the initial hydrate leaves focus untouched (byte-identical, no surprise grab).
+function restoreScopeFocus(container) {
+  try {
+    const crumb = container?.querySelector?.(".diagram-scope-crumb-current");
+    if (typeof crumb?.focus === "function") {
+      crumb.focus();
+      return;
+    }
+    // No breadcrumb (suppressed / at root): fall back to the container if it can take focus.
+    if (typeof container?.focus === "function" && container.getAttribute?.("tabindex") != null) {
+      container.focus();
+    }
+  } catch { /* focus management must never break a scope transition */ }
+}
+
+async function renderDiagramLevel(container, diagram, options, { restoreFocus = false } = {}) {
   const token = ++nextHydrationToken;
   hydrationTokens.set(container, token);
   const layout = await layoutDiagram(diagram, options);
@@ -1487,8 +1644,11 @@ async function renderDiagramLevel(container, diagram, options) {
   bindDiagramStageControls(container, diagram, options);
   if (options.drillDown) {
     bindDiagramScopeNavigation(container, diagram, options);
-    renderScopeBreadcrumb(container, options);
+    // P1: `scopeBreadcrumb:false` suppresses the bar (boundary-only or host-driven chrome).
+    if (options.scopeBreadcrumb !== false) renderScopeBreadcrumb(container, options);
   }
+  // Only enter/exit transitions ask for focus restoration; the initial hydrate does not.
+  if (restoreFocus) restoreScopeFocus(container);
 }
 
 // ---- Pan / zoom / fit-to-view ---------------------------------------------

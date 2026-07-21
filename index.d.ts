@@ -173,6 +173,14 @@ export interface DiagramRenderOptions {
   hasScope?: (node: DiagramNode) => boolean;
   /** P0-B3: notified on every scope transition (enter/exit) with the current depth + title path. */
   onScopeChange?: (info: { depth: number; path: string[]; model: DiagramModelInput | null }) => void;
+  /** P1 scope-linking: on a nested scope child (drillDown), render an outer boundary + a full-canvas
+   *  transparent exit backdrop, and enable the click-outside / Escape "zoom out one level" gesture
+   *  (default true). `false` renders a read-only child with no exit affordance that never intercepts
+   *  background clicks. Inert at the root level and when `drillDown` is off → byte-identical. */
+  scopeExitOnBackground?: boolean;
+  /** P1 scope-linking: render the scope breadcrumb bar (default true). `false` suppresses it for a
+   *  boundary-only UX or a host driving its own chrome via `onScopeChange`. */
+  scopeBreadcrumb?: boolean;
   /** Staged diagrams: render the prev/next stage controls (default true; only relevant when the
    *  model declares ≥ 2 stages). `false` renders the full union with no controls. */
   stageControls?: boolean;
@@ -196,10 +204,16 @@ export interface DiagramModelInput {
   description?: string;
   nodes?: readonly any[];
   edges?: readonly any[];
-  /** Free-form model metadata. RESERVED key: `scopeOf` — a drill-down sub-diagram's own scope-root
-   *  node id. Set automatically by `enterNodeScope` on the model it renders (P1-B2); at render the
-   *  matching node's "dig in" glyph is suppressed so it can't re-enter its own scope. A resolver may
-   *  pre-set it, but need not. Top-level models carry no `scopeOf`. */
+  /** Free-form model metadata. RESERVED keys:
+   *   - `scopeOf` — a drill-down sub-diagram's own scope-root node id. Set automatically by
+   *     `enterNodeScope` on the model it renders (P1-B2); at render the matching node's "dig in"
+   *     glyph is suppressed so it can't re-enter its own scope. A resolver may pre-set it, but need
+   *     not. Top-level models carry no `scopeOf`.
+   *   - `scopeOfTitle` — the parent scope's display title, shown in the P1 outer-boundary label
+   *     ("‹ <parent> · click outside to zoom out"). Auto-stamped by `enterNodeScope` from the
+   *     entering node's title (falls back to "parent scope"); a host that pre-stamps `scopeOf` on a
+   *     stored child may pre-set it too.
+   *   - `scopeLabel` — an optional author caption for a node's drill-in button (nice-to-have). */
   metadata?: Record<string, unknown>;
   [key: string]: unknown;
 }
