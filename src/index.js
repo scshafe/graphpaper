@@ -269,6 +269,10 @@ function normalizeOptions(options = {}) {
     // `scopeBreadcrumb` (default true) gates the breadcrumb bar for boundary-only / host-driven UX.
     scopeExitOnBackground: options.scopeExitOnBackground ?? true,
     scopeBreadcrumb: options.scopeBreadcrumb ?? true,
+    // Phase 2 (opt-in, default-off): the animated matched-frame scope transition. Normalized to
+    // `{ mode, durationMs, maxAnimatedNodes }`; default mode "crisp" ⇒ behavior-identical to today.
+    // Consumed ONLY in the enter/exit path (runScopeTransition) — renderDiagramSvg never reads it.
+    scopeTransition: normalizeScopeTransition(options.scopeTransition),
     // Staged process diagrams. Stage machinery activates only when the MODEL declares ≥2
     // stages (diagramStages) — un-staged models render byte-identically regardless of these.
     stageControls: options.stageControls ?? true,
@@ -286,6 +290,117 @@ export function nodeHasScope(node, options = {}) {
   if (node.scope != null) return true;
   if (node.metadata && node.metadata.scopeRef != null && `${node.metadata.scopeRef}`.trim() !== "") return true;
   return typeof options.hasScope === "function" ? options.hasScope(node) === true : false;
+}
+
+// ---- Phase 2: opt-in animated scope transition (matched-frame illusion) ------
+// PURELY ADDITIVE + DEFAULT-OFF. The default `scopeTransition.mode === "crisp"` path is
+// byte-/behavior-identical to the pre-Phase-2 renderer: no requestAnimationFrame, no document,
+// no getBoundingClientRect. When opted into `"zoom"` (and reduced-motion is off + rAF exists),
+// enter/exit run a compositor-only cross-fade that maps the whole incoming <svg> onto the
+// entered node's on-screen box (an ILLUSION, not literal continuous zoom). It NEVER touches the
+// viewBox (so panZoom stays untouched) — only CSS transform + opacity on two stacked layers.
+// The helpers below are pure + unit-testable; the DOM orchestration lives in runScopeTransition.
+
+const DEFAULT_SCOPE_TRANSITION_DURATION_MS = 260;
+const DEFAULT_SCOPE_TRANSITION_MAX_NODES = 400;
+const SCOPE_TRANSITION_SCALE_FLOOR = 0.35;
+
+/** Ease-out-cubic: fast start, gentle settle. easeOutCubic(0)===0, easeOutCubic(1)===1, and it is
+ *  monotonic non-decreasing on [0,1]. Pure; exported for tests. */
+export function easeOutCubic(t) {
+  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+  const inv = 1 - clamped;
+  return 1 - inv * inv * inv;
+}
+
+/** Linear interpolation a→b by t. Pure; exported for tests. */
+export function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+/** Clamp a uniform scale to a floor so a tiny node opening a huge child does not start invisibly
+ *  small (matched-frame illusion honesty). Pure; exported for tests. */
+export function clampScale(scale, floor = SCOPE_TRANSITION_SCALE_FLOOR) {
+  const safeFloor = Number.isFinite(floor) ? floor : SCOPE_TRANSITION_SCALE_FLOOR;
+  if (!Number.isFinite(scale)) return safeFloor;
+  return scale < safeFloor ? safeFloor : scale;
+}
+
+/** Compute the CSS transform (translate+uniform-scale) that maps `fromRect` onto `toRect`: the
+ *  scale is `toRect.width / fromRect.width` and the translate lands `fromRect`'s top-left, scaled,
+ *  on `toRect`'s top-left. Guards a zero/degenerate `fromRect.width` (returns scale 1, no
+ *  translate). Pure; exported for tests. Rects use {left, top, width}. */
+export function rectToRectTransform(fromRect, toRect) {
+  const fromW = fromRect?.width;
+  const scale = Number.isFinite(fromW) && fromW !== 0 && Number.isFinite(toRect?.width)
+    ? toRect.width / fromW
+    : 1;
+  const fromLeft = Number.isFinite(fromRect?.left) ? fromRect.left : 0;
+  const fromTop = Number.isFinite(fromRect?.top) ? fromRect.top : 0;
+  const toLeft = Number.isFinite(toRect?.left) ? toRect.left : 0;
+  const toTop = Number.isFinite(toRect?.top) ? toRect.top : 0;
+  return {
+    translateX: toLeft - fromLeft * scale,
+    translateY: toTop - fromTop * scale,
+    scale
+  };
+}
+
+/** Serialize a {translateX, translateY, scale} into a CSS transform string. Pure; exported. */
+export function scopeTransformToCss({ translateX = 0, translateY = 0, scale = 1 } = {}) {
+  return `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+}
+
+/** Normalize the `scopeTransition` option into `{ mode, durationMs, maxAnimatedNodes }`. Accepts
+ *  undefined (→ crisp defaults), a bare string "crisp"|"zoom", or an object. Default mode is
+ *  ALWAYS "crisp" (default-off). Pure; exported for tests. */
+export function normalizeScopeTransition(input) {
+  const defaults = {
+    mode: "crisp",
+    durationMs: DEFAULT_SCOPE_TRANSITION_DURATION_MS,
+    maxAnimatedNodes: DEFAULT_SCOPE_TRANSITION_MAX_NODES
+  };
+  if (input == null) return defaults;
+  if (typeof input === "string") {
+    return { ...defaults, mode: input === "zoom" ? "zoom" : "crisp" };
+  }
+  if (typeof input !== "object") return defaults;
+  const mode = input.mode === "zoom" ? "zoom" : "crisp";
+  const durationMs = Number.isFinite(input.durationMs) && input.durationMs > 0
+    ? input.durationMs
+    : defaults.durationMs;
+  const maxAnimatedNodes = Number.isFinite(input.maxAnimatedNodes) && input.maxAnimatedNodes >= 0
+    ? input.maxAnimatedNodes
+    : defaults.maxAnimatedNodes;
+  return { mode, durationMs, maxAnimatedNodes };
+}
+
+/** True when the container's document prefers reduced motion. Fully optional-chained: safe with a
+ *  null container or outside a browser. Exported for tests. */
+export function prefersReducedMotion(container) {
+  return container?.ownerDocument?.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+}
+
+/** The single gate deciding whether a scope enter/exit should ANIMATE (else crisp-commit). True
+ *  only when: mode is "zoom"; reduced-motion is off; the container's window has requestAnimationFrame;
+ *  the outgoing <svg> exists and supports getBoundingClientRect; and the incoming diagram does not
+ *  exceed maxAnimatedNodes. Any failure silently falls back to crisp. Exported for tests. */
+export function shouldAnimateScopeTransition(options, container, incomingDiagram) {
+  if (options?.scopeTransition?.mode !== "zoom") return false;
+  if (prefersReducedMotion(container)) return false;
+  if (typeof container?.ownerDocument?.defaultView?.requestAnimationFrame !== "function") return false;
+  const svg = scopeTransitionOutgoingSvg(container);
+  if (!svg || typeof svg.getBoundingClientRect !== "function") return false;
+  const maxNodes = options?.scopeTransition?.maxAnimatedNodes ?? DEFAULT_SCOPE_TRANSITION_MAX_NODES;
+  const nodeCount = incomingDiagram?.nodes?.length ?? 0;
+  if (nodeCount > maxNodes) return false;
+  return true;
+}
+
+/** Find the container's live diagram <svg> (the standard lookup used everywhere else). */
+function scopeTransitionOutgoingSvg(container) {
+  if (!container || typeof container.querySelector !== "function") return null;
+  return container.querySelector("svg.diagram-svg") ?? container.querySelector("svg");
 }
 
 // ---- Lifecycle marking (deprecated / expired / …) ---------------------------
@@ -1210,6 +1325,9 @@ function unbindDelegatedDiagramPopovers(container) {
 export function cleanupHydratedDiagram(container) {
   if (!container) return;
   hydrationTokens.delete(container);
+  // Phase 2: cancel any in-flight animated scope transition (cancelAnimationFrame + remove the
+  // clone overlay + restore the incoming svg). No-op when nothing is animating (the default).
+  cancelScopeTransition(container);
   unbindDelegatedDiagramPopovers(container);
   disablePanZoom(container);
   // P0-B3: tear down the drill-down nav + stack + breadcrumb.
@@ -1346,15 +1464,32 @@ async function enterNodeScope(container, node, options) {
   stack.push({ title: node.title ?? node.id, model: scopedModel });
   diagramScopeStacks.set(container, stack);
   emitScopeChange(container, options);
-  await renderDiagramLevel(container, scopedModel, options, { restoreFocus: true });
+  // Phase 2: the crisp commit is the EXISTING renderDiagramLevel promise; runScopeTransition either
+  // just awaits it (crisp default — behaviorally identical to before) or wraps it in the animated
+  // matched-frame cross-fade. `nodeId` is the ENTERING node — its box lives in the outgoing level.
+  await runScopeTransition(container, options, {
+    direction: "enter",
+    nodeId: node.id,
+    incomingDiagram: scopedModel,
+    commit: () => renderDiagramLevel(container, scopedModel, options, { restoreFocus: true })
+  });
 }
 
 async function exitToScopeDepth(container, depth, options) {
   const stack = diagramScopeStack(container).slice(0, depth + 1);
   if (stack.length === 0) return;
+  const outgoingModel = diagramScopeStack(container)[diagramScopeStack(container).length - 1]?.model ?? null;
   diagramScopeStacks.set(container, stack);
   emitScopeChange(container, options);
-  await renderDiagramLevel(container, stack[stack.length - 1].model, options, { restoreFocus: true });
+  const targetModel = stack[stack.length - 1].model;
+  // Phase 2: for EXIT the matched box is the node in the PARENT (incoming) we return to — the child's
+  // `metadata.scopeOf`. Its on-screen box must be read on the incoming parent svg AFTER commit.
+  await runScopeTransition(container, options, {
+    direction: "exit",
+    nodeId: outgoingModel?.metadata?.scopeOf ?? null,
+    incomingDiagram: targetModel,
+    commit: () => renderDiagramLevel(container, targetModel, options, { restoreFocus: true })
+  });
 }
 
 function emitScopeChange(container, options) {
@@ -1367,6 +1502,224 @@ function emitScopeChange(container, options) {
       model: stack[stack.length - 1]?.model ?? null
     });
   } catch { /* a host callback must never break navigation */ }
+}
+
+// ---- Phase 2: DOM orchestration of the animated scope transition ------------
+// Per-container cancel handle (mirrors panZoomBindings/diagramScopeBindings). Stores a fn that
+// cancelAnimationFrame(id) + removes the clone overlay + restores the incoming svg's inline styles.
+// Called+deleted at the START of every runScopeTransition (supersede a prior tween) and from
+// cleanupHydratedDiagram (tear-down self-cancel).
+const diagramTransitionBindings = new WeakMap();
+
+function cancelScopeTransition(container) {
+  const cancel = diagramTransitionBindings.get(container);
+  if (cancel) cancel();
+  diagramTransitionBindings.delete(container);
+}
+
+/** Query the on-screen box of a rendered node group `[data-diagram-node="<id>"]` inside `svg`.
+ *  Returns null when the group or getBoundingClientRect is missing. */
+function scopeNodeScreenRect(svg, nodeId) {
+  if (!svg || nodeId == null || typeof svg.querySelector !== "function") return null;
+  const escaped = String(nodeId).replace(/"/g, '\\"');
+  const group = svg.querySelector(`[data-diagram-node="${escaped}"]`);
+  if (!group || typeof group.getBoundingClientRect !== "function") return null;
+  const rect = group.getBoundingClientRect();
+  return rect && Number.isFinite(rect.width) && rect.width > 0 ? rect : null;
+}
+
+/** Clear the inline styles the tween sets on the incoming svg, returning it to the crisp state. */
+function clearScopeTransitionStyle(svg) {
+  if (!svg || !svg.style) return;
+  svg.style.transform = "";
+  svg.style.opacity = "";
+  svg.style.willChange = "";
+  svg.style.transformOrigin = "";
+  svg.style.pointerEvents = "";
+}
+
+/**
+ * Phase 2: run a scope enter/exit either crisply (default) or as an opt-in animated matched-frame
+ * cross-fade. `commit` is a thunk returning the EXISTING renderDiagramLevel(...) promise — the
+ * authoritative single-layout swap+hydrate of the incoming level. Behavior:
+ *   - Not animating → `return await commit()` (BEHAVIORALLY IDENTICAL to pre-Phase-2).
+ *   - Animating → snapshot the outgoing svg into a dead overlay clone, await commit(), then rAF-lerp
+ *     BOTH layers via CSS transform+opacity only (never the viewBox). Aborts (leaving the committed
+ *     crisp DOM) if a newer transition or hydrate supersedes mid-flight. Always cleans up.
+ * `_hooks` is a test seam (frame/schedule injection); production passes nothing.
+ */
+async function runScopeTransition(container, options, { direction, nodeId, incomingDiagram, commit } = {}, _hooks = {}) {
+  // Supersede any prior in-flight tween immediately (a newer enter/exit wins).
+  cancelScopeTransition(container);
+
+  if (!shouldAnimateScopeTransition(options, container, incomingDiagram)) {
+    // DEFAULT / crisp / reduced-motion / too-big path — no rAF, no clone, no measurement, no
+    // getBoundingClientRect. BEHAVIORALLY IDENTICAL to the pre-Phase-2 direct `await commit()`.
+    return await commit();
+  }
+
+  const outgoingSvg = scopeTransitionOutgoingSvg(container);
+  const win = container?.ownerDocument?.defaultView;
+  const durationMs = options?.scopeTransition?.durationMs ?? DEFAULT_SCOPE_TRANSITION_DURATION_MS;
+
+  // Measure the OUTGOING geometry ONCE, before commit swaps the svg's contents.
+  const outgoingSvgRect = outgoingSvg && typeof outgoingSvg.getBoundingClientRect === "function"
+    ? outgoingSvg.getBoundingClientRect()
+    : null;
+  // For ENTER the matched box is read on the OUTGOING svg (the entering node lives there).
+  const enterNodeRect = direction === "enter" ? scopeNodeScreenRect(outgoingSvg, nodeId) : null;
+
+  // Build the dead snapshot overlay (a clone of the outgoing svg) stacked over the container.
+  const doc = container.ownerDocument;
+  const layer = typeof doc?.createElement === "function" ? doc.createElement("div") : null;
+  let cloneSvg = null;
+  if (layer && typeof outgoingSvg?.cloneNode === "function" && typeof container.appendChild === "function") {
+    layer.className = "diagram-scope-transition-layer";
+    if (layer.style) {
+      layer.style.position = "absolute";
+      layer.style.inset = "0";
+      layer.style.pointerEvents = "none";
+      layer.style.willChange = "transform,opacity";
+    }
+    cloneSvg = outgoingSvg.cloneNode(true);
+    if (cloneSvg?.style) {
+      cloneSvg.style.transformOrigin = "0 0";
+      cloneSvg.style.willChange = "transform,opacity";
+    }
+    if (typeof layer.appendChild === "function") layer.appendChild(cloneSvg);
+    container.appendChild(layer);
+  }
+
+  // ---- Cancellation state, registered BEFORE `await commit()` --------------------------------
+  // `commit()` (renderDiagramLevel) genuinely suspends on `await layoutDiagram` (async ELK). A rapid
+  // double interaction (double-click, enter-then-background-exit) can start tween B while tween A is
+  // still suspended here. If A's cancel handle is only registered AFTER the await, B's
+  // `cancelScopeTransition(container)` at the top of runScopeTransition is a NO-OP against A — A's
+  // clone + rAF leak past the supersede. So register a canceller NOW: it tears down the
+  // already-appended clone overlay, marks the tween aborted, cancels any scheduled rAF, and settles
+  // the caller. The SAME `cancelBinding` serves both the mid-commit window and the animating phase
+  // (rafId is null until the rAF loop starts; incomingSvg is filled in after commit).
+  let rafId = null;
+  let resolveTween = null; // set once the animation Promise is created; lets an external cancel settle it
+  let finished = false;
+  let aborted = false; // set by an external cancel firing DURING `await commit()` (before we animate)
+  let incomingSvg = null; // resolved after commit; finish() clears its inline tween styles
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (layer && typeof layer.remove === "function") layer.remove();
+    else if (layer?.parentNode && typeof layer.parentNode.removeChild === "function") layer.parentNode.removeChild(layer);
+    clearScopeTransitionStyle(incomingSvg);
+    if (diagramTransitionBindings.get(container) === cancelBinding) diagramTransitionBindings.delete(container);
+    // Settle the awaiting enter/exit — a superseded/canceled tween must never hang its caller.
+    if (typeof resolveTween === "function") resolveTween();
+  };
+
+  const cancelBinding = () => {
+    aborted = true;
+    if (rafId != null && typeof win?.cancelAnimationFrame === "function") win.cancelAnimationFrame(rafId);
+    rafId = null;
+    finish();
+  };
+  diagramTransitionBindings.set(container, cancelBinding);
+
+  // The authoritative crisp commit (single ELK layout + swap + hydrate of the incoming level).
+  // renderDiagramLevel bumps `nextHydrationToken` FIRST and RETURNS the token IT installed. We
+  // capture THAT (our OWN commit's token) rather than the global-current token: if a newer render
+  // (tween B) superseded during our commit's own await, renderDiagramLevel bailed WITHOUT swapping
+  // and the global token is now B's — reading the global here would make `superseded()` compare a
+  // value against itself and wrongly conclude we were NOT superseded, animating a stale svg. Reading
+  // our OWN installed token makes the comparison honest.
+  const committedToken = await commit();
+
+  incomingSvg = scopeTransitionOutgoingSvg(container);
+
+  // A tween is superseded when: an external cancel fired during our commit's await (`aborted`); the
+  // container left the DOM; a NEWER renderDiagramLevel bumped the hydration token past the one OUR
+  // commit installed; or there is no incoming svg to animate.
+  const superseded = () =>
+    aborted ||
+    container.isConnected === false ||
+    hydrationTokens.get(container) !== committedToken ||
+    !incomingSvg;
+
+  // If commit already bailed (token superseded during its own await) OR another transition raced in
+  // (aborted our binding), leave the DOM in the committed crisp state and stop.
+  if (superseded() || !outgoingSvgRect || !incomingSvg?.style) { finish(); return; }
+
+  // For EXIT the matched box is on the INCOMING (parent) svg, read AFTER commit.
+  const matchedRect = direction === "enter" ? enterNodeRect : scopeNodeScreenRect(incomingSvg, nodeId);
+  // The whole incoming svg maps onto the node box (matched-frame). Fall back to the svg's own rect
+  // (identity — a plain cross-fade) when the node box is unavailable.
+  const targetBox = matchedRect ?? outgoingSvgRect;
+
+  // Center-based translate + clamped uniform scale so the box centers stay coincident even when the
+  // scale floor kicks in (a tiny node opening a huge child).
+  const startScale = clampScale(rectToRectTransform(outgoingSvgRect, targetBox).scale);
+  const fromCx = outgoingSvgRect.left + outgoingSvgRect.width / 2;
+  const fromCy = outgoingSvgRect.top + outgoingSvgRect.height / 2;
+  const toCx = targetBox.left + targetBox.width / 2;
+  const toCy = targetBox.top + (targetBox.height ?? targetBox.width) / 2;
+  const startTransform = {
+    translateX: toCx - fromCx * startScale,
+    translateY: toCy - fromCy * startScale,
+    scale: startScale
+  };
+  const identity = { translateX: 0, translateY: 0, scale: 1 };
+
+  // ENTER: incoming starts small-inside-the-node (opacity 0) → identity + opacity 1; the clone stays
+  //        at identity → zooms into the node + opacity 1 → 0.
+  // EXIT:  incoming (parent) starts zoomed-INTO the node → pulls out to identity + fades in; the clone
+  //        (child) shrinks into the node + fades out. Same math; which layer is "incoming" flips.
+  incomingSvg.style.transformOrigin = "0 0";
+  incomingSvg.style.willChange = "transform,opacity";
+  incomingSvg.style.pointerEvents = "none";
+
+  const applyFrame = (t) => {
+    const e = easeOutCubic(t);
+    const mix = (a, b) => ({
+      translateX: lerp(a.translateX, b.translateX, e),
+      translateY: lerp(a.translateY, b.translateY, e),
+      scale: lerp(a.scale, b.scale, e)
+    });
+    incomingSvg.style.transform = scopeTransformToCss(mix(startTransform, identity));
+    incomingSvg.style.opacity = String(lerp(0, 1, e));
+    if (cloneSvg?.style) {
+      cloneSvg.style.transform = scopeTransformToCss(mix(identity, startTransform));
+      cloneSvg.style.opacity = String(lerp(1, 0, e));
+    }
+  };
+
+  // Paint the first frame synchronously so the incoming svg never flashes at identity/full-opacity.
+  applyFrame(0);
+
+  const now = typeof _hooks.now === "function"
+    ? _hooks.now
+    : (typeof win.performance?.now === "function" ? () => win.performance.now() : () => Date.now());
+  const raf = typeof _hooks.requestAnimationFrame === "function"
+    ? _hooks.requestAnimationFrame
+    : win.requestAnimationFrame.bind(win);
+
+  await new Promise((resolve) => {
+    resolveTween = resolve;
+    const start = now();
+    const step = () => {
+      rafId = null;
+      if (superseded()) { finish(); return; }
+      const t = durationMs > 0 ? Math.min(1, (now() - start) / durationMs) : 1;
+      applyFrame(t);
+      if (t >= 1) { finish(); return; }
+      rafId = raf(step);
+    };
+    rafId = raf(step);
+  });
+}
+
+/** Test seam: drive `runScopeTransition` directly with an injectable frame clock (`_hooks` =
+ *  `{ requestAnimationFrame, now }`) so the animation can be flushed frame-by-frame with zero real
+ *  DOM/rAF. Not part of the public API surface — exported only for the Phase-2 test harness. */
+export function __runScopeTransitionForTest(container, options, spec, hooks) {
+  return runScopeTransition(container, normalizeOptions(options), spec, hooks);
 }
 
 function scopeEnterTargetFor(target, container) {
@@ -1630,11 +1983,16 @@ function restoreScopeFocus(container) {
   } catch { /* focus management must never break a scope transition */ }
 }
 
+// Returns the hydration token this render installed. Phase 2's runScopeTransition captures it (via
+// the `commit()` thunk) so a tween whose OWN render bailed — because a newer enter/exit/hydrate
+// bumped the global token past this one during the `await layoutDiagram` window — is correctly
+// detected as superseded (`hydrationTokens.get(container) !== <this token>`) and does NOT animate a
+// stale/absent svg. A bailed render still returns its own token so the comparison stays honest.
 async function renderDiagramLevel(container, diagram, options, { restoreFocus = false } = {}) {
   const token = ++nextHydrationToken;
   hydrationTokens.set(container, token);
   const layout = await layoutDiagram(diagram, options);
-  if (hydrationTokens.get(container) !== token || !container.isConnected) return;
+  if (hydrationTokens.get(container) !== token || !container.isConnected) return token;
   disablePanZoom(container);
   replaceDiagramSvgNodes(container, diagram, layout, options);
   bindDiagramPopovers(container, diagram, options);
@@ -1649,6 +2007,7 @@ async function renderDiagramLevel(container, diagram, options, { restoreFocus = 
   }
   // Only enter/exit transitions ask for focus restoration; the initial hydrate does not.
   if (restoreFocus) restoreScopeFocus(container);
+  return token;
 }
 
 // ---- Pan / zoom / fit-to-view ---------------------------------------------

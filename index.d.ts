@@ -181,6 +181,19 @@ export interface DiagramRenderOptions {
   /** P1 scope-linking: render the scope breadcrumb bar (default true). `false` suppresses it for a
    *  boundary-only UX or a host driving its own chrome via `onScopeChange`. */
   scopeBreadcrumb?: boolean;
+  /** Phase 2 scope-linking (OPT-IN, default `"crisp"`): an animated matched-frame transition on
+   *  drill enter/exit. `"zoom"` cross-fades the outgoing snapshot and the incoming level so the eye
+   *  reads "the node became the child" — an ILLUSION (the whole incoming diagram is scaled onto the
+   *  entered node's on-screen box), NOT a literal continuous magnification (the two levels have
+   *  independent layouts). Compositor-only (CSS transform + opacity; the viewBox / panZoom is never
+   *  touched). Falls back to the crisp swap under `prefers-reduced-motion`, without
+   *  requestAnimationFrame, or for a level exceeding `maxAnimatedNodes`. The default `"crisp"` is
+   *  behavior-identical to omitting the option. `durationMs` defaults to 260, `maxAnimatedNodes` to
+   *  400. Consumed only by the enter/exit controller — `renderDiagramSvg` never reads it. */
+  scopeTransition?:
+    | "crisp"
+    | "zoom"
+    | { mode?: "crisp" | "zoom"; durationMs?: number; maxAnimatedNodes?: number };
   /** Staged diagrams: render the prev/next stage controls (default true; only relevant when the
    *  model declares ≥ 2 stages). `false` renders the full union with no controls. */
   stageControls?: boolean;

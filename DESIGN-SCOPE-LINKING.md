@@ -1,9 +1,20 @@
 # graphpaper — scope linking (drill-in button + outer-boundary exit + future zoom)
 
-**Status:** design (2026-07-20). Extends P0-B3 scope drill-down ([[DESIGN-SCOPE-DRILLDOWN.md]])
+**Status:** IMPLEMENTED (2026-07-20). Extends P0-B3 scope drill-down ([[DESIGN-SCOPE-DRILLDOWN.md]])
 with the drill-**UP** half: an outer boundary on a nested scope and a click-outside / Escape
-gesture that pops one level. Phase 1 (boundary + gesture) ships now; Phase 2 (animated
-semantic-zoom transition) is deferred, sketched here for continuity.
+gesture that pops one level. **Phase 1** (boundary + gesture) and **Phase 2** (opt-in animated
+semantic-zoom transition, `scopeTransition:"zoom"`, default `"crisp"`) are both shipped.
+
+> **Phase 2 as-built note.** The animation shipped with a refined, simpler integration than the
+> two-viewBox-`<svg>` / `preRendered` sketch below: it **clones the outgoing `<svg>`** into a dead
+> overlay, lets the *unchanged* `renderDiagramLevel` commit the incoming level (so ELK layout runs
+> **once**), then tweens **both layers with compositor-only CSS `transform` + `opacity` — never
+> touching the `viewBox`** (zero panZoom conflict, 60fps). Guards: default-`crisp` / reduced-motion
+> / no-`requestAnimationFrame` / no-DOM / `> maxAnimatedNodes` all fall back to the byte-identical
+> crisp commit. Abort-on-supersede uses the existing hydration-token substrate (the canceller is
+> registered *before* `await commit()`, and `renderDiagramLevel` returns its own token so a tween
+> whose render bailed is detected as superseded). The prose below is kept as the original design
+> intent; the code is the source of truth.
 
 ## TL;DR
 

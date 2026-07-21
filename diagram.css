@@ -172,3 +172,17 @@
 .diagram-scope-exit-backdrop { cursor: zoom-out; }
 .diagram-scope-boundary-label-bg { fill: rgba(8, 17, 31, 0.86); stroke: var(--gp-line, var(--line, rgba(183, 203, 231, 0.18))); stroke-width: 1; }
 .diagram-scope-boundary-label-text { fill: var(--gp-muted, var(--muted, #9fb0c8)); font-size: 12px; dominant-baseline: middle; }
+
+/* ---- Scope / drill-down — opt-in animated transition (Phase 2, default OFF) ---- */
+/* A transient snapshot overlay of the OUTGOING level, stacked over the (position:relative)
+   container while a `scopeTransition:"zoom"` enter/exit cross-fades. Compositor-only: the tween
+   drives transform + opacity on this layer and on the incoming <svg> — never the viewBox. The
+   layer is a dead snapshot, so it must never intercept pointer events. */
+.diagram-scope-transition-layer { position: absolute; inset: 0; pointer-events: none; will-change: transform, opacity; }
+.diagram-scope-transition-layer > svg { width: 100%; height: 100%; transform-origin: 0 0; }
+/* Belt-and-suspenders: the JS already falls back to a crisp swap under reduced-motion (it never
+   schedules an animation frame), but if a host somehow forces the layer to exist, neutralize any
+   transition/animation on it too. */
+@media (prefers-reduced-motion: reduce) {
+  .diagram-scope-transition-layer, .diagram-scope-transition-layer > svg { transition: none; animation: none; }
+}

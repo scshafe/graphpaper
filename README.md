@@ -93,6 +93,28 @@ The stack tracks the **path**, not identity — the same stored child referenced
 returns to the correct parent per traversal, and a rendered-standalone child (no `scopeOf`) shows
 no boundary, since it is a valid top-level diagram on its own.
 
+### Animated transition (opt-in, default off)
+
+`scopeTransition: "zoom"` enables an **opt-in animated matched-frame transition** on drill
+enter/exit: the outgoing level is snapshotted and cross-fades with the incoming level, which is
+scaled onto the entered node's on-screen box so the eye reads "the node became the child".
+
+```js
+await hydrateDiagram(el, topology, {
+  drillDown: true,
+  resolveScope,
+  scopeTransition: "zoom", // or { mode: "zoom", durationMs: 260, maxAnimatedNodes: 400 }
+});
+```
+
+It is an **illusion**, not a literal continuous zoom — the parent and child are separate diagrams
+with independent layouts, so their interiors don't correspond pixel-for-pixel; the two frames only
+coincide at the seam. It is **compositor-only** (CSS transform + opacity — the pan/zoom viewBox is
+never touched) and strictly additive: the default `"crisp"` is behavior-identical to omitting the
+option, and it **falls back to the crisp swap** under `prefers-reduced-motion`, when
+`requestAnimationFrame` is unavailable, or for a level exceeding `maxAnimatedNodes` (default 400).
+`durationMs` defaults to 260.
+
 ## Lifecycle marking (deprecated / expired / …)
 
 A diagram can declare a lifecycle state so a stale graph can never be mistaken for the current
