@@ -177,6 +177,19 @@ hosts/tests: `diagramStages(model)`, `stageVisibilityForDiagram(model)`. Models 
 
 See `index.d.ts` for the full `DiagramModel` / `DiagramRenderOptions` types.
 
+## Development
+
+Use Node.js 22.22.0 and npm 10.9.4:
+
+```bash
+npm ci
+npm run verify
+```
+
+The release gate runs the complete test suite, audits the npm payload, packs
+the package, installs that tarball into a fresh temporary consumer, and imports
+the public API.
+
 ## Styling
 
 Import the shipped stylesheet so the visuals travel with the package:
