@@ -5,6 +5,11 @@ A small, framework-agnostic diagram renderer. Give it a neutral node/edge
 and renders interactive SVG (status-colored nodes, orthogonal edge routing,
 hierarchy nesting, and hover popovers). No React required.
 
+Popovers cover **edges** as well as nodes: hovering or keyboard-focusing an edge
+shows its endpoints, label, `description` (the colloquial explanation of the
+relationship), and kind/flavor rows. Each edge renders a wide transparent hit
+path so the 2px stroke is comfortably hoverable.
+
 ## Usage
 
 ```js

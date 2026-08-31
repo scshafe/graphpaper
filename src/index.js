@@ -1091,12 +1091,14 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
     const groupClass = `map-edge-group edge-type-${classToken(edge.type)}${isFlow ? " map-edge-group-flow" : ""}`;
     const pathClass = `map-edge edge-kind-${classToken(kindToken)} edge-flavor-${classToken(flavorToken)}${isFlow ? " map-edge-flow" : ""}`;
     const flowAttr = isFlow ? ` data-edge-flow="${esc(classToken(flavorToken))}"` : "";
-    // Staged diagrams stamp each edge group with its render key so the stage controller can
-    // toggle visibility per edge (nodes already carry data-diagram-node for popovers).
-    const stageAttr = staged ? ` data-diagram-edge="${esc(edgeKey(edge, index))}"` : "";
+    // Every edge group carries its render key: the stage controller toggles visibility by it and
+    // bindDiagramPopovers resolves hover/focus hits by it (nodes use data-diagram-node the same
+    // way). The transparent map-edge-hit twin widens the pointer target so a 2px stroke is
+    // actually hoverable; tabindex mirrors the nodes so keyboard focus reaches edge details too.
     const edgeMarkerId = isFlow ? flowMarkerId : markerId;
-    return [`<g class="${groupClass}"${flowAttr}${stageAttr}>
+    return [`<g class="${groupClass}"${flowAttr} data-diagram-edge="${esc(edgeKey(edge, index))}" tabindex="0" focusable="true" role="group" aria-label="${esc(`${edgeLabel(edge, diagram)}. Hover or focus to inspect details.`)}">
       <title>${esc(edgeLabel(edge, diagram))}</title>
+      <path class="map-edge-hit" d="${esc(path)}" pointer-events="stroke"></path>
       <path class="${pathClass}" d="${esc(path)}" marker-end="url(#${edgeMarkerId})"></path>
       ${renderEdgeLabel(edge, from, to, options, isFlow)}
     </g>`];
@@ -1357,6 +1359,40 @@ function stayedInsideDiagramNode(element, relatedTarget) {
   return isDiagramNode(relatedTarget, element) && element.contains(relatedTarget);
 }
 
+function diagramEdgeEventTarget(target, container) {
+  if (!isDiagramNode(target, container)) return null;
+  let cursor = target;
+  while (cursor && cursor !== container) {
+    if (cursor.getAttribute?.("data-diagram-edge")) return cursor;
+    cursor = cursor.parentNode;
+  }
+  return null;
+}
+
+// Synthesize the node-shaped popover payload for an EDGE: the kicker names the relationship's
+// endpoints, the body carries the label, the colloquial description, and kind/flavor rows.
+// Reusing the node popover renderer wholesale keeps edges and nodes visually identical.
+function edgePopoverModel(edge, diagram) {
+  const nodes = new Map((diagram.nodes ?? []).map((node) => [node.id, node]));
+  const fromTitle = nodes.get(edge.from)?.title ?? edge.from;
+  const toTitle = nodes.get(edge.to)?.title ?? edge.to;
+  const rows = [{ label: "type", value: edge.type ?? "edge" }];
+  const kind = edge.metadata?.kind;
+  const flavor = edge.metadata?.flavor;
+  if (typeof kind === "string" && kind && kind !== edge.type) rows.push({ label: "kind", value: kind });
+  if (typeof flavor === "string" && flavor && flavor !== edge.type) rows.push({ label: "flavor", value: flavor });
+  return {
+    type: edge.type ?? "edge",
+    title: edge.label ?? `${fromTitle} → ${toTitle}`,
+    description: edge.description,
+    details: {
+      kicker: `${fromTitle} → ${toTitle}`,
+      title: edge.label ?? `${fromTitle} → ${toTitle}`,
+      sections: [{ title: "Relationship", rows }]
+    }
+  };
+}
+
 function unbindDelegatedDiagramPopovers(container) {
   const cleanup = delegatedDiagramPopoverBindings.get(container);
   if (!cleanup) return;
@@ -1391,6 +1427,9 @@ export function bindDiagramPopovers(container, diagram, options) {
   hideDiagramPopover();
   if (!options.showPopovers) return;
   const byId = new Map((diagram.nodes ?? []).map((node) => [node.id, node]));
+  // Same keying as the renderer's data-diagram-edge stamp (edgeKey over validEdges order), so a
+  // hovered edge group always resolves to its model. Payloads are synthesized once per bind.
+  const edgeModels = new Map(validEdges(diagram).map((edge, index) => [edgeKey(edge, index), edgePopoverModel(edge, diagram)]));
   // Idempotent for the normal path (options are pre-normalized by hydrateDiagram); also gives a
   // direct external caller the documented 2000ms default instead of a silent 0.
   const hoverDelay = normalizePopoverHoverDelayMs(options.popoverHoverDelayMs);
@@ -1400,25 +1439,34 @@ export function bindDiagramPopovers(container, diagram, options) {
     const node = byId.get(element.getAttribute("data-diagram-node"));
     return node ? { element, node } : null;
   };
+  // Edges resolve exactly like nodes, from their own stamp; a node hit wins (an edge group never
+  // contains a node, so the order only matters for determinism).
+  const edgeFromEvent = (event) => {
+    const element = diagramEdgeEventTarget(event.target, container);
+    if (!element || stayedInsideDiagramNode(element, event.relatedTarget)) return null;
+    const model = edgeModels.get(element.getAttribute("data-diagram-edge"));
+    return model ? { element, node: model } : null;
+  };
+  const hitFromEvent = (event) => nodeFromEvent(event) ?? edgeFromEvent(event);
   // Hover: debounced by `hoverDelay` — the pointer must dwell on the node before the popover shows.
   const showHover = (event) => {
-    const hit = nodeFromEvent(event);
+    const hit = hitFromEvent(event);
     if (hit) scheduleShowDiagramNodePopover(hit.element, hit.node, hoverDelay);
   };
   // Focus (keyboard): deliberate navigation, so show immediately — never make a keyboard user wait.
   const showFocus = (event) => {
-    const hit = nodeFromEvent(event);
+    const hit = hitFromEvent(event);
     if (hit) showDiagramNodePopover(hit.element, hit.node);
   };
   const scheduleHide = (event) => {
-    const hit = nodeFromEvent(event);
+    const hit = hitFromEvent(event);
     if (!hit) return;
     // Leaving the node before its dwell elapsed cancels the pending show (so nothing ever appears).
     clearDiagramPopoverShowTimer();
     scheduleHideDiagramPopover(hit.element);
   };
   const hide = (event) => {
-    const hit = nodeFromEvent(event);
+    const hit = hitFromEvent(event);
     if (hit) hideDiagramPopover(hit.element);
   };
   container.addEventListener("pointerover", showHover);

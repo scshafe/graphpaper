@@ -1,6 +1,6 @@
 {
   "name": "graphpaper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Framework-agnostic diagram renderer — lay out a neutral node/edge DiagramModel with ELK and render interactive SVG.",
   "type": "module",
   "license": "MIT",

@@ -41,6 +41,11 @@
 
 /* ---- Edges ---- */
 .map-edge { fill: none; stroke: rgba(169, 190, 214, 0.48); stroke-width: 2; vector-effect: non-scaling-stroke; }
+/* Transparent hover/focus twin of each edge path: widens the pointer target so the popover is
+   reachable without pixel-hunting a 2px stroke. Thickening on hover/focus signals interactivity. */
+.map-edge-hit { fill: none; stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; }
+.map-edge-group:focus { outline: none; }
+.map-edge-group:hover .map-edge, .map-edge-group:focus .map-edge { stroke-width: 2.75; }
 .map-edge.edge-kind-contains { stroke: rgba(108, 182, 255, 0.44); stroke-dasharray: 3 6; }
 .map-edge.edge-kind-has_child { stroke: rgba(82, 210, 115, 0.62); stroke-dasharray: 7 5; }
 .map-edge.edge-kind-sibling_of { stroke: rgba(169, 190, 214, 0.58); }
