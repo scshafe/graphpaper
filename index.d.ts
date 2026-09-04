@@ -37,6 +37,12 @@ export interface DiagramNode {
   status?: string;
   description?: string;
   rows?: DiagramRow[];
+  /**
+   * How many of `rows` this node shows on the diagram (component nodes cap at 3); default: the
+   * `visibleRows` render option. Honoured under `compact` too, where nodes otherwise show no rows —
+   * the way to give one node a line of its own without loosening the whole layout.
+   */
+  visibleRows?: number;
   details?: DiagramDetails;
   metadata?: Record<string, unknown>;
   /** P0-B3: an inline sub-diagram this node contains (a "scope"). When present (or when

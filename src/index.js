@@ -582,8 +582,20 @@ function layoutOptions(options) {
   };
 }
 
+// A node may set its own `visibleRows`; the render option is the default. A node that asks is
+// honoured in compact mode too, where nodes otherwise show no rows at all.
+function nodeVisibleRowLimit(node, options) {
+  return Number.isFinite(node.visibleRows) ? node.visibleRows : options.visibleRows;
+}
+
 function visibleRows(node, options) {
-  return (node.rows ?? []).slice(0, Math.max(0, options.visibleRows));
+  return (node.rows ?? []).slice(0, Math.max(0, nodeVisibleRowLimit(node, options)));
+}
+
+function componentVisibleRows(node, options) {
+  if (options.compact && !Number.isFinite(node.visibleRows)) return [];
+  // Component nodes show at most three rows, whatever the node or the options ask for.
+  return (node.rows ?? []).slice(0, Math.max(0, Math.min(nodeVisibleRowLimit(node, options), 3)));
 }
 
 // The «type» band at the top of a node: stereotype text + divider. `stereotypes: false` drops it
@@ -612,7 +624,7 @@ function tableNodeSize(node, options) {
 }
 
 function componentNodeSize(node, options) {
-  const displayedRows = options.compact ? [] : visibleRows(node, { ...options, visibleRows: Math.min(options.visibleRows, 3) });
+  const displayedRows = componentVisibleRows(node, options);
   const band = stereotypeBand(options);
   const baseHeight = (options.compact ? 72 : 86) - band;
   return {
@@ -1107,7 +1119,7 @@ function renderScopeBoundary(layout, diagram, options) {
 function renderComponentNode(node, position, options) {
   const width = position.width;
   const height = position.height;
-  const rows = options.compact ? [] : visibleRows(node, { ...options, visibleRows: Math.min(options.visibleRows, 3) });
+  const rows = componentVisibleRows(node, options);
   const band = stereotypeBand(options);
   const rowText = rows.map((row, index) => `<text class="diagram-node-row component-node-row" x="12" y="${78 - band + index * COMPONENT_ROW_HEIGHT}">${esc(row.label)}${row.value ? `: ${esc(shortRef(row.value, 24))}` : ""}</text>`).join("");
   const statusClass = node.status ? `component-status-${classToken(node.status)}` : "";

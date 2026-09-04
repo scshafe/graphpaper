@@ -80,6 +80,11 @@ it), starts shown unless `legendVisible: false`, and with `panZoom` on gets a
 Key button beside the zoom controls that toggles it and remembers the choice
 per diagram id in localStorage.
 
+A node can also set its own `visibleRows` to show some of its `rows` on the
+diagram — honoured under `compact`, where nodes otherwise show none — so one
+agent can carry a line such as `marks: ok | hostile` without loosening the
+whole layout.
+
 ## Scope / drill-down (nested diagrams)
 
 A node can **contain a sub-diagram** — a sense of "scope". The sub-diagram is **not** rendered
