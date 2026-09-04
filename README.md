@@ -72,9 +72,10 @@ hydrateDiagram(el, model, {
 });
 ```
 
-Each swatch wears the same classes as the nodes and edges it stands for
-(`map-node node-type-service`, `map-edge edge-kind-flow`), so whatever your
-stylesheet gives the diagram, the key shows the same. The legend renders after
+Node entries render as chips — the label inside a box wearing the node's own
+classes (`map-node node-type-service`) — and edge entries as a line swatch
+(`map-edge edge-kind-flow`), so whatever your stylesheet gives the diagram,
+the key shows the same. The legend renders after
 the SVG as `.diagram-legend` (positioned in the container; pan/zoom positions
 it), starts shown unless `legendVisible: false`, and with `panZoom` on gets a
 Key button beside the zoom controls that toggles it and remembers the choice

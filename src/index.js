@@ -1165,21 +1165,25 @@ function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefine
 // edge-kind-<kind> …`), so whatever stylesheet colours the diagram colours the key the same way —
 // one source of truth, no palette to keep in step. Rendered after the SVG and positioned by CSS
 // inside the (positioned) container; enablePanZoom adds a Key button that shows and hides it.
-function legendSwatch(entry) {
+function legendItem(entry) {
+  const label = `<span class="diagram-legend-label">${esc(entry.label)}</span>`;
   if (entry.edge) {
     const kind = entry.edge.kind ?? "edge";
     const flavor = entry.edge.flavor ?? kind;
     const flow = entry.edge.flow ? " map-edge-flow" : "";
-    return `<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-edge-group"><path class="map-edge edge-kind-${classToken(kind)} edge-flavor-${classToken(flavor)}${flow}" d="M 1 7 L 21 7"></path></g></svg>`;
+    const swatch = `<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-edge-group"><path class="map-edge edge-kind-${classToken(kind)} edge-flavor-${classToken(flavor)}${flow}" d="M 1 7 L 21 7"></path></g></svg>`;
+    return `<li class="diagram-legend-item">${swatch}${label}</li>`;
   }
+  // A node entry is a chip: the label sits inside a box that wears the node's classes, so the key
+  // shows the kind exactly as the diagram draws it — text on the node's own fill and stroke.
   const status = entry.status ? ` component-status-${classToken(entry.status)}` : "";
-  return `<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-node component-node node-type-${classToken(entry.type ?? "node")}${status}"><rect width="22" height="14" rx="3"></rect></g></svg>`;
+  return `<li class="diagram-legend-item"><span class="diagram-legend-chip"><svg class="diagram-legend-chip-bg" aria-hidden="true"><g class="map-node component-node node-type-${classToken(entry.type ?? "node")}${status}"><rect width="100%" height="100%" rx="5"></rect></g></svg>${label}</span></li>`;
 }
 
 function legendMarkup(options) {
   const entries = options.legend.filter((entry) => entry && entry.label);
   if (entries.length === 0) return "";
-  const items = entries.map((entry) => `<li class="diagram-legend-item">${legendSwatch(entry)}<span class="diagram-legend-label">${esc(entry.label)}</span></li>`).join("");
+  const items = entries.map(legendItem).join("");
   return `<div class="diagram-legend" role="group" aria-label="${esc(options.legendTitle)}"${options.legendVisible ? "" : ' hidden=""'}><div class="diagram-legend-title">${esc(options.legendTitle)}</div><ul class="diagram-legend-list">${items}</ul></div>`;
 }
 

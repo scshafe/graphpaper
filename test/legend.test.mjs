@@ -64,7 +64,7 @@ test("the legend renders swatches in the nodes' and edges' own classes, after th
   const legendStart = svg.indexOf('<div class="diagram-legend"');
   assert.ok(legendStart > svg.indexOf("</svg>"), "the legend follows the SVG");
   assert.match(svg, /<div class="diagram-legend" role="group" aria-label="What the colours mean"><div class="diagram-legend-title">What the colours mean<\/div><ul class="diagram-legend-list">/);
-  assert.match(svg, /<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-node component-node node-type-service"><rect width="22" height="14" rx="3"><\/rect><\/g><\/svg><span class="diagram-legend-label">Service<\/span>/);
+  assert.match(svg, /<li class="diagram-legend-item"><span class="diagram-legend-chip"><svg class="diagram-legend-chip-bg" aria-hidden="true"><g class="map-node component-node node-type-service"><rect width="100%" height="100%" rx="5"><\/rect><\/g><\/svg><span class="diagram-legend-label">Service<\/span><\/span><\/li>/, "a node entry is a chip with the label inside the node-coloured box");
   assert.match(svg, /<g class="map-node component-node node-type-store component-status-degraded">/);
   assert.match(svg, /<path class="map-edge edge-kind-reads edge-flavor-reads" d="M 1 7 L 21 7"><\/path>/);
   assert.match(svg, /<path class="map-edge edge-kind-flow edge-flavor-flow map-edge-flow"/);

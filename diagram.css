@@ -163,8 +163,12 @@
 .diagram-legend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .diagram-legend-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 .diagram-legend-swatch { flex: none; width: 22px; height: 14px; overflow: visible; }
-.diagram-legend-swatch .map-node rect { stroke-width: 1.5; }
 .diagram-legend-swatch .map-edge { stroke-width: 2.5; }
+/* Node entries are chips: the label inside a box wearing the node's own classes (fill + stroke). */
+.diagram-legend-chip { position: relative; display: inline-block; padding: 2px 8px; border-radius: 5px; }
+.diagram-legend-chip-bg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.diagram-legend-chip-bg .map-node rect { stroke-width: 1.2; }
+.diagram-legend-chip .diagram-legend-label { position: relative; }
 .diagram-panzoom-btn:hover { border-color: var(--gp-blue, var(--blue, #6cb6ff)); color: var(--gp-blue, var(--blue, #6cb6ff)); }
 
 /* ---- Scope / drill-down (P0-B3) ---- */
