@@ -266,6 +266,23 @@ export interface DiagramRenderOptions {
   initialStage?: number;
   /** Staged diagrams: notified on every stage change. */
   onStageChange?: (info: { index: number; count: number; stage: Required<DiagramStage> }) => void;
+  /** Node selection (OPT-IN, default off → byte-identical: no listeners, no `diagram-node-selected`
+   *  class, nothing to clean up). Supplying this handler makes nodes pickable: a click, or Enter /
+   *  Space on a focused node (nodes already carry `tabindex="0"`), selects exactly one and marks it
+   *  `diagram-node-selected` + `aria-current="true"`; Escape or a click on empty canvas clears it.
+   *  A pan that ends over a node does not select. Re-picking the selected node is a no-op and does
+   *  NOT call back. Under `drillDown`, selection is the INNER gesture: Escape and a background click
+   *  clear a selection before they pop a scope level, and the "dig in" glyph still drills.
+   *  `source` says what caused it: `"pointer"`, `"keyboard"`, `"background"` (cleared by a click on
+   *  empty canvas), `"api"` ({@link selectDiagramNode}), or `"render"` (a re-render no longer draws
+   *  the selected node, so the selection was dropped). The library marks the node; what a pick MEANS
+   *  is entirely the host's. */
+  onNodeSelect?: (info: {
+    nodeId: string | null;
+    node: DiagramNode | null;
+    previousNodeId: string | null;
+    source: "pointer" | "keyboard" | "background" | "api" | "render";
+  }) => void;
   nodeRenderers?: Record<string, DiagramNodeRenderer>;
   [key: string]: unknown;
 }
@@ -362,6 +379,33 @@ export interface PanZoomOptions {
 
 /** Enable viewBox-based pan / zoom / fit-to-view on an already-hydrated diagram container. Returns a cleanup function. */
 export function enablePanZoom(container: Element, options?: PanZoomOptions): () => void;
+
+/** The id of the node currently selected in `container`, or null (also null when selection is off). */
+export function selectedDiagramNodeId(container: Element | null | undefined): string | null;
+
+/** Select a node by id from the host — a deep link, a list click, a restored view. `null` clears.
+ *  Returns false when selection is not enabled on this container (no `onNodeSelect`) or the id is
+ *  not in the rendered model; the mark never lands on a node that is not drawn. `{ notify: false }`
+ *  moves the mark without calling `onNodeSelect`. */
+export function selectDiagramNode(
+  container: Element | null | undefined,
+  nodeId: string | null | undefined,
+  options?: { notify?: boolean }
+): boolean;
+
+/** Clear the selection (the host closed whatever the pick opened). */
+export function clearDiagramNodeSelection(
+  container: Element | null | undefined,
+  options?: { notify?: boolean }
+): boolean;
+
+/** Bind click/keyboard interaction (drill-down navigation and/or node selection) to an SVG the host
+ *  laid out itself. `hydrateDiagram` calls this; direct use is for a host doing its own render. */
+export function bindDiagramInteractions(
+  container: Element,
+  diagram: DiagramModelInput,
+  options: DiagramRenderOptions
+): void;
 
 /** Tear down pan/zoom on a container (also performed by cleanupHydratedDiagram). */
 export function disablePanZoom(container: Element): void;

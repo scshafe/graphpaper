@@ -228,6 +228,37 @@ top-level schema change. Options: `stageControls: false` (render the full union,
 hosts/tests: `diagramStages(model)`, `stageVisibilityForDiagram(model)`. Models without stages
 (all existing ones) ⇒ byte-identical markup.
 
+## Node selection (click a node, host decides what it means)
+
+Pass `onNodeSelect` and nodes become pickable. Exactly one node is selected at a time; it wears
+`diagram-node-selected` and `aria-current="true"`, and the host is told which one. graphpaper
+marks the node and nothing else — opening a panel, routing, fetching detail is the host's job.
+
+```js
+await hydrateDiagram(el, model, {
+  panZoom: true,
+  onNodeSelect: ({ nodeId, node, previousNodeId, source }) => {
+    if (nodeId == null) closePanel();       // Escape, a click on empty canvas, or the node went away
+    else openPanel(nodeId, node);
+  }
+});
+
+selectDiagramNode(el, "action-recall");     // deep link / restore — returns false if not drawn
+selectedDiagramNodeId(el);                  // "action-recall"
+clearDiagramNodeSelection(el);              // the host closed the panel
+```
+
+Gestures: click, or **Enter / Space** on a focused node (nodes already carry `tabindex="0"`, so
+the pick is Tab-reachable with no new markup). **Escape** or a click on empty canvas clears. A
+drag-to-pan that ends over a node does **not** select. Re-picking the node already selected is a
+no-op and does not call back, so a second click can never make a host re-fetch.
+
+Under `drillDown`, selection is the **inner** gesture: Escape and a background click drop a
+selection before they pop a scope level (one gesture undoes one thing), and the "dig in" glyph
+still drills. A re-render (a scope transition) keeps the selection if that level still draws the
+node, and otherwise clears it and calls back with `source: "render"` — a mark is never left on
+nothing. Omit `onNodeSelect` and none of this binds: byte-identical markup, no listeners.
+
 ## API
 
 - `hydrateDiagram(container, model, options?)` — lay out + render into a DOM element, bind popovers + (opt-in) drill-down nav.
@@ -239,6 +270,8 @@ hosts/tests: `diagramStages(model)`, `stageVisibilityForDiagram(model)`. Models 
 - `isInformationFlowEdge(edge)` — predicate for flow edges.
 - `nodeHasScope(node, options?)` — predicate: does the node have a drill-down scope?
 - `enablePanZoom(container, options?)` / `disablePanZoom(container)` — pan/zoom control.
+- `selectDiagramNode(container, nodeId, options?)` / `clearDiagramNodeSelection(container, options?)` / `selectedDiagramNodeId(container)` — node-selection control.
+- `bindDiagramInteractions(container, model, options)` — click/keyboard binding for a host-rendered SVG.
 - `diagramLifecycle(model)` — normalize the lifecycle declaration (or null).
 - `diagramStages(model)` / `stageVisibilityForDiagram(model)` — staged-diagram helpers.
 

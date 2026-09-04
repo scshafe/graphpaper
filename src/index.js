@@ -305,6 +305,12 @@ function normalizeOptions(options = {}) {
     stageControls: options.stageControls ?? true,
     initialStage: options.initialStage,
     onStageChange: typeof options.onStageChange === "function" ? options.onStageChange : null,
+    // Node selection. Default OFF — without `onNodeSelect` nothing binds, no node ever wears
+    // `diagram-node-selected`, and every render is byte-identical. When on, a click (or Enter /
+    // Space on a focused node) picks exactly one node and tells the host; Escape or a click on
+    // empty canvas drops the pick. The host owns whatever the pick opens; the library owns only
+    // which node is marked.
+    onNodeSelect: typeof options.onNodeSelect === "function" ? options.onNodeSelect : null,
     nodeRenderers: { ...defaultNodeRenderers, ...(options.nodeRenderers ?? {}) }
   };
 }
@@ -1067,7 +1073,7 @@ function scopedNodeClass(node, options) {
 
 /** P0-B3: the "dig in" glyph rendered top-right of a scoped node (drillDown only). It is a
  *  focusable button carrying `data-diagram-scope-enter=<nodeId>` — the nav controller
- *  (bindDiagramScopeNavigation) delegates off that attribute. Empty string when not scoped,
+ *  (bindDiagramInteractions) delegates off that attribute. Empty string when not scoped,
  *  so non-scope nodes + the default (drillDown off) stay byte-identical. */
 function scopeAffordanceMarkup(node, width, options) {
   if (!options.drillDown || !nodeHasScope(node, options)) return "";
@@ -1299,7 +1305,7 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
   // P1 scope-linking: the outer boundary + exit backdrop, only on a nested scope child under
   // drillDown (gated exactly like the "dig in" glyph so root/non-drill renders stay byte-identical).
   // Injected between the edge and node groups below so the backdrop is a SIBLING beneath the nodes
-  // (never their ancestor) — that keeps hit-testing DOM-only in bindDiagramScopeNavigation.
+  // (never their ancestor) — that keeps hit-testing DOM-only in bindDiagramInteractions.
   const scopeBoundary =
     (options.drillDown && options.scopeRootId != null && options.scopeExitOnBackground !== false)
       ? renderScopeBoundary(layout, diagram, options)
@@ -1599,8 +1605,10 @@ export function cleanupHydratedDiagram(container) {
   cancelScopeTransition(container);
   unbindDelegatedDiagramPopovers(container);
   disablePanZoom(container);
-  // P0-B3: tear down the drill-down nav + stack + breadcrumb.
-  unbindDiagramScopeNavigation(container);
+  // P0-B3: tear down the click/keyboard bindings + drill-down stack + breadcrumb, and forget
+  // which node was selected (a torn-down container has no selection to carry).
+  unbindDiagramInteractions(container);
+  diagramNodeSelections.delete(container);
   diagramScopeStacks.delete(container);
   container.querySelector?.(".diagram-scope-breadcrumb")?.remove();
   // Staged process controls: unbind removes the stage bar + per-container state.
@@ -2059,12 +2067,107 @@ export function scopeExitOneLevelDepth(stackLength) {
   return stackLength - 2;
 }
 
-function bindDiagramScopeNavigation(container, diagram, options) {
-  unbindDiagramScopeNavigation(container);
+// ---- Node selection ---------------------------------------------------------
+// One node at a time, marked with `diagram-node-selected` + `aria-current="true"`, reported to
+// the host through `onNodeSelect`. The library never decides what a pick MEANS — a host opens a
+// panel, a route, a form, nothing at all. Selection is per container and lives in this WeakMap
+// beside the node index the binder built, so the public setters can name a node and notify:
+//   container -> { nodeId: string|null, byId: Map<string, node>, options }
+const diagramNodeSelections = new WeakMap();
+
+/** Paint exactly one node as selected (or none). Uses `toggleDiagramClass` so it works against a
+ *  fake DOM with no classList, and `aria-current` — a global attribute — so assistive tech hears
+ *  the pick without inventing a role. */
+function paintDiagramNodeSelection(container, nodeId) {
+  for (const element of container.querySelectorAll?.("[data-diagram-node]") ?? []) {
+    const on = nodeId != null && element.getAttribute?.("data-diagram-node") === nodeId;
+    toggleDiagramClass(element, "diagram-node-selected", on);
+    if (on) element.setAttribute?.("aria-current", "true");
+    else element.removeAttribute?.("aria-current");
+  }
+}
+
+function notifyDiagramNodeSelect(state, info) {
+  if (typeof state.options?.onNodeSelect !== "function") return;
+  try {
+    state.options.onNodeSelect(info);
+  } catch { /* a host callback must never break diagram interaction */ }
+}
+
+/** The single write path for the selection: validates the id against the rendered model, paints,
+ *  and notifies. Idempotent — re-picking the node already selected changes nothing and does NOT
+ *  re-notify, so a second click cannot make a host re-fetch. An id this level does not have is
+ *  refused outright (returns false) rather than silently clearing: the mark never lies about which
+ *  node it is on. Returns whether the selection now IS what was asked for. */
+function setDiagramNodeSelection(container, nodeId, source, notify = true) {
+  const state = diagramNodeSelections.get(container);
+  if (!state) return false;                                    // selection is not enabled here
+  if (nodeId != null && !state.byId.has(nodeId)) return false; // unknown node: nothing moves
+  const next = nodeId ?? null;
+  if (next === state.nodeId) return true;
+  const previousNodeId = state.nodeId;
+  state.nodeId = next;
+  paintDiagramNodeSelection(container, next);
+  // A hover popover pinned to the node the host is about to cover reads as a stranded tooltip.
+  hideDiagramPopover();
+  if (notify) {
+    notifyDiagramNodeSelect(state, {
+      nodeId: next,
+      node: next == null ? null : state.byId.get(next) ?? null,
+      previousNodeId,
+      source
+    });
+  }
+  return true;
+}
+
+/** The id of the node currently selected in `container`, or null (also null when selection is off). */
+export function selectedDiagramNodeId(container) {
+  return (container && diagramNodeSelections.get(container)?.nodeId) ?? null;
+}
+
+/** Select a node by id from the host — a deep link, a list click, a restored view. `null` clears.
+ *  Returns false when selection is not enabled on this container or the id is not in the rendered
+ *  model. Pass `{ notify: false }` to move the mark without calling `onNodeSelect` (for the host
+ *  that already knows what it just did). */
+export function selectDiagramNode(container, nodeId, { notify = true } = {}) {
+  if (!container) return false;
+  return setDiagramNodeSelection(container, nodeId ?? null, "api", notify);
+}
+
+/** Clear the selection (the host closed whatever the pick opened). */
+export function clearDiagramNodeSelection(container, { notify = true } = {}) {
+  return selectDiagramNode(container, null, { notify });
+}
+
+// Click / keyboard interaction for a rendered level: drill-down navigation (P0-B3 / P1) and node
+// selection, in ONE handler pair so their precedence is written down rather than left to listener
+// order. Binds when either is enabled; a consumer using neither gets no listeners at all.
+// Exported for tests (drive click/keydown against a fake DOM). Consumers normally reach this via
+// hydrateDiagram; direct use is fine for a host that lays out its own SVG.
+export function bindDiagramInteractions(container, diagram, options) {
+  unbindDiagramInteractions(container);
   const byId = new Map((diagram.nodes ?? []).map((node) => [node.id, node]));
+  const selecting = typeof options.onNodeSelect === "function";
+  if (selecting) {
+    // A re-render (a scope transition, a fresh hydrate) rebuilds every node group, so the class
+    // has to be re-applied. A selection whose node this level does not have is dropped and the
+    // host TOLD — a mark on nothing, or a panel about a node no longer drawn, would both lie.
+    const carried = diagramNodeSelections.get(container)?.nodeId ?? null;
+    const kept = carried != null && byId.has(carried) ? carried : null;
+    const state = { nodeId: kept, byId, options };
+    diagramNodeSelections.set(container, state);
+    paintDiagramNodeSelection(container, kept);
+    if (carried != null && kept == null) {
+      notifyDiagramNodeSelect(state, { nodeId: null, node: null, previousNodeId: carried, source: "render" });
+    }
+  } else {
+    diagramNodeSelections.delete(container);
+  }
   // Pan-vs-click disambiguation: with panZoom on, a drag-to-pan release also fires `click`. Track
   // pointer travel from the pointerdown origin and set `moved` past EXIT_MOVE_THRESHOLD so a pan
-  // release never pops a scope level. Reset on every pointerdown.
+  // release never pops a scope level, and never picks the node it happened to end over. Reset on
+  // every pointerdown.
   let moved = false;
   let downX = 0;
   let downY = 0;
@@ -2096,22 +2199,55 @@ function bindDiagramScopeNavigation(container, diagram, options) {
       void enterNodeScope(container, node, options);
       return;
     }
+    // A click that landed on a node picks it — unless the pointer travelled, in which case the
+    // gesture was a pan that happened to end over one.
+    if (selecting) {
+      const picked = diagramNodeEventTarget(event.target, container);
+      if (picked) {
+        if (moved) return;
+        event.preventDefault?.();
+        setDiagramNodeSelection(container, picked.getAttribute("data-diagram-node"), "pointer");
+        return;
+      }
+    }
+    if (moved) return;
+    // Empty canvas. Innermost first: a click outside drops the selection before it pops a scope
+    // level, so one gesture undoes exactly one thing.
+    if (selecting && diagramNodeSelections.get(container)?.nodeId != null) {
+      event.preventDefault?.();
+      setDiagramNodeSelection(container, null, "background");
+      return;
+    }
     // P1 background-click drill-UP: only on a real empty-canvas click (backdrop match), never a pan.
     if (options.scopeExitOnBackground === false) return;
-    if (moved) return;
     if (!scopeExitTargetFor(event.target, container)) return;
     exitOneLevel(event);
   };
   const onKey = (event) => {
-    // P1 keyboard drill-UP: Escape pops one level (the keyboard-reachable mirror of background click).
     if (event.key === "Escape") {
+      // Innermost first, as above: Escape drops a selection before it pops a scope level.
+      if (selecting && diagramNodeSelections.get(container)?.nodeId != null) {
+        event.preventDefault?.();
+        setDiagramNodeSelection(container, null, "keyboard");
+        return;
+      }
+      // P1 keyboard drill-UP: Escape pops one level (the keyboard mirror of a background click).
       if (options.scopeExitOnBackground === false) return;
       exitOneLevel(event);
       return;
     }
     if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
-    if (!scopeEnterTargetFor(event.target, container)) return;
-    activate(event);
+    if (scopeEnterTargetFor(event.target, container)) {
+      activate(event);
+      return;
+    }
+    if (!selecting) return;
+    // Nodes already carry tabindex="0", so the pick is reachable by Tab + Enter with no new
+    // markup. preventDefault matters here: Space would otherwise scroll the page.
+    const picked = diagramNodeEventTarget(event.target, container);
+    if (!picked) return;
+    event.preventDefault?.();
+    setDiagramNodeSelection(container, picked.getAttribute("data-diagram-node"), "keyboard");
   };
   container.addEventListener("pointerdown", onDown);
   container.addEventListener("pointermove", onMove);
@@ -2125,7 +2261,7 @@ function bindDiagramScopeNavigation(container, diagram, options) {
   });
 }
 
-function unbindDiagramScopeNavigation(container) {
+function unbindDiagramInteractions(container) {
   const cleanup = diagramScopeBindings.get(container);
   if (cleanup) cleanup();
   diagramScopeBindings.delete(container);
@@ -2298,11 +2434,11 @@ async function renderDiagramLevel(container, diagram, options, { restoreFocus = 
   // Staged process controls (no-op for un-staged models). Bound BEFORE the drill-down
   // breadcrumb so a breadcrumb, when present, prepends above the stage bar.
   bindDiagramStageControls(container, diagram, options);
-  if (options.drillDown) {
-    bindDiagramScopeNavigation(container, diagram, options);
-    // P1: `scopeBreadcrumb:false` suppresses the bar (boundary-only or host-driven chrome).
-    if (options.scopeBreadcrumb !== false) renderScopeBreadcrumb(container, options);
-  }
+  // Click/keyboard interaction: drill-down navigation, node selection, or both. Neither on ⇒
+  // no listeners at all, exactly as before selection existed.
+  if (options.drillDown || options.onNodeSelect) bindDiagramInteractions(container, diagram, options);
+  // P1: `scopeBreadcrumb:false` suppresses the bar (boundary-only or host-driven chrome).
+  if (options.drillDown && options.scopeBreadcrumb !== false) renderScopeBreadcrumb(container, options);
   // Only enter/exit transitions ask for focus restoration; the initial hydrate does not.
   if (restoreFocus) restoreScopeFocus(container);
   return token;

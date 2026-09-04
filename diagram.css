@@ -27,6 +27,12 @@
 .diagram-lifecycle-watermark-deprecated { fill: rgba(255, 159, 67, 0.16); }
 .diagram-lifecycle-watermark-expired, .diagram-lifecycle-watermark-out-of-date { fill: rgba(255, 107, 107, 0.15); }
 
+/* ---- Node selection ---- */
+/* The node the host is showing something about. A ring only — no fill change — so the node keeps
+   the colour that says what KIND it is; selection says only "this one", never what it is. */
+.diagram-node-selected > rect { stroke: var(--gp-selected, var(--gp-blue, var(--blue, #6cb6ff))); stroke-width: 3; filter: drop-shadow(0 0 10px rgba(108, 182, 255, 0.5)); }
+.diagram-node-selected .map-node-title { fill: var(--gp-selected, var(--gp-blue, var(--blue, #6cb6ff))); }
+
 /* ---- Staged process diagrams ---- */
 .diagram-stage-hidden { display: none; }
 .diagram-stage-new > rect { stroke: var(--gp-blue, var(--blue, #6cb6ff)); stroke-width: 2.5; filter: drop-shadow(0 0 9px rgba(108, 182, 255, 0.45)); }
