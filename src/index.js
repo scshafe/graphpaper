@@ -1142,21 +1142,25 @@ function edgeLabel(edge, diagram) {
   return [fromTitle, "→", toTitle, edge.label, edge.type, edge.description].filter(Boolean).join(" · ");
 }
 
-function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefined) {
+function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefined, key = undefined) {
   // Information-flow edges always surface their label on the diagram: the flow verb (reads,
   // publishes, …) is the payload, not decoration. Other edge types stay opt-in via showEdgeLabels.
   if (!edgeLabelShown(edge, options)) return "";
   const labelClass = isFlow ? "map-edge-label map-edge-flow-label" : "map-edge-label";
   const text = esc(edgeLabelText(edge));
+  // Labels are painted in a layer above every edge path, so they carry the key
+  // themselves: popover hit-testing walks up to it, and stage visibility hides
+  // a label with its edge.
+  const keyAttr = key === undefined ? "" : ` data-diagram-edge="${esc(key)}"`;
   if (box) {
     // The layout engine placed this label (an ELK inline label): centre the text in its box.
     const x = (box.x + box.width / 2).toFixed(1);
     const y = (box.y + box.height - 3).toFixed(1);
-    return `<text class="${labelClass}" x="${x}" y="${y}" text-anchor="middle">${text}</text>`;
+    return `<text class="${labelClass}"${keyAttr} x="${x}" y="${y}" text-anchor="middle">${text}</text>`;
   }
   const x = ((from.centerX + to.centerX) / 2).toFixed(1);
   const y = ((from.centerY + to.centerY) / 2 - 6).toFixed(1);
-  return `<text class="${labelClass}" x="${x}" y="${y}">${text}</text>`;
+  return `<text class="${labelClass}"${keyAttr} x="${x}" y="${y}">${text}</text>`;
 }
 
 // ---- Legend (colour key) -------------------------------------------------------
@@ -1206,6 +1210,7 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
   // below is byte-identical to before either feature existed.
   const lifecycle = diagramLifecycle(diagram);
   const staged = diagramStages(diagram).length > 0;
+  const edgeLabels = [];
   const edges = validEdges(diagram).flatMap((edge, index) => {
     if (hierarchyTypes.has(edge.type) && layout.drawHierarchyEdges === false) return [];
     const from = layout.positions.get(edge.from);
@@ -1227,9 +1232,20 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
       <title>${esc(edgeLabel(edge, diagram))}</title>
       <path class="map-edge-hit" d="${esc(path)}" pointer-events="stroke"></path>
       <path class="${pathClass}" d="${esc(path)}" marker-end="url(#${edgeMarkerId})"></path>
-      ${renderEdgeLabel(edge, from, to, options, isFlow, layout.edgeLabelBoxes?.get(edgeKey(edge, index)))}
     </g>`];
   }).join("");
+  for (const [index, edge] of validEdges(diagram).entries()) {
+    if (hierarchyTypes.has(edge.type) && layout.drawHierarchyEdges === false) continue;
+    const from = layout.positions.get(edge.from);
+    const to = layout.positions.get(edge.to);
+    if (!from || !to) continue;
+    const key = edgeKey(edge, index);
+    const label = renderEdgeLabel(edge, from, to, options, isInformationFlowEdge(edge), layout.edgeLabelBoxes?.get(key), key);
+    if (label) edgeLabels.push(label);
+  }
+  // One layer above the paths. Without it an edge drawn later strikes through a
+  // word placed earlier, which is exactly what a dense fan-out produces.
+  const edgeLabelLayer = edgeLabels.length === 0 ? "" : `<g class="map-edge-label-layer">${edgeLabels.join("")}</g>`;
 
   const nodeGroups = [...(diagram.nodes ?? [])].sort((left, right) => {
     const leftDepth = layout.containmentDepths?.get(left.id) ?? 0;
@@ -1276,7 +1292,7 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
         <marker id="${markerId}" class="diagram-arrow-marker" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker>
         <marker id="${flowMarkerId}" class="diagram-arrow-marker diagram-arrow-marker-flow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker>
       </defs>
-      <g class="map-edges">${edges}</g>${scopeBoundary ? `
+      <g class="map-edges">${edges}${edgeLabelLayer}</g>${scopeBoundary ? `
       ${scopeBoundary}` : ""}
       <g class="map-nodes">${nodeGroups}</g>${watermark ? `
       ${watermark}` : ""}

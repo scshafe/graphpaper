@@ -115,7 +115,13 @@ test("shown edge labels are handed to the engine and rendered where it placed th
   const key = [...shown.edgePaths.keys()][0];
   assert.deepEqual(shown.edgeLabelBoxes.get(key), { x: 132, y: 127, width: sent[0].width, height: 14 }, "the box comes back offset like the sections");
   const svg = renderDiagramSvg(model, shown, { showEdgeLabels: true });
-  assert.ok(svg.includes(`<text class="map-edge-label" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box");
+  const escapedKey = key.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  assert.ok(svg.includes(`<text class="map-edge-label" data-diagram-edge="${escapedKey}" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box and carries its edge key");
+  // Every path is painted before any word, so a later edge cannot strike through an earlier label.
+  assert.ok(svg.lastIndexOf('<path class="map-edge ') < svg.indexOf('<text class="map-edge-label"'), "labels sit in a layer above the paths");
+  assert.match(svg, /<\/g><g class="map-edge-label-layer"><text class="map-edge-label"/u);
+  assert.ok(svg.indexOf('class="map-edge-label-layer"') < svg.indexOf('<g class="map-nodes">'), "but still below the nodes");
+
 
   // Decision-style placement: the label sits beside the edge at its source, adding no layers.
   engine.calls.length = 0;
