@@ -55,6 +55,31 @@ const layout = await layoutDiagram(model, options);
 const svg = renderDiagramSvg(model, layout, options); // no DOM needed
 ```
 
+## Node headers and the colour key
+
+Every node opens with a «type» line and a divider. `stereotypes: false` drops
+them — the colour carries the kind and each node shrinks by that band — and a
+`legend` says what the colours mean:
+
+```js
+hydrateDiagram(el, model, {
+  stereotypes: false,
+  legend: [
+    { type: "service", label: "Service" },
+    { type: "store", status: "degraded", label: "Degraded" },
+    { edge: { kind: "flow", flow: true }, label: "Data flow" }
+  ]
+});
+```
+
+Each swatch wears the same classes as the nodes and edges it stands for
+(`map-node node-type-service`, `map-edge edge-kind-flow`), so whatever your
+stylesheet gives the diagram, the key shows the same. The legend renders after
+the SVG as `.diagram-legend` (positioned in the container; pan/zoom positions
+it), starts shown unless `legendVisible: false`, and with `panZoom` on gets a
+Key button beside the zoom controls that toggles it and remembers the choice
+per diagram id in localStorage.
+
 ## Scope / drill-down (nested diagrams)
 
 A node can **contain a sub-diagram** — a sense of "scope". The sub-diagram is **not** rendered
@@ -193,7 +218,8 @@ hosts/tests: `diagramStages(model)`, `stageVisibilityForDiagram(model)`. Models 
 
 - `hydrateDiagram(container, model, options?)` — lay out + render into a DOM element, bind popovers + (opt-in) drill-down nav.
 - `layoutDiagram(model, options?)` → `DiagramLayout` — positions + edge paths only.
-- `renderDiagramSvg(model, layout, options?)` → SVG markup string.
+- `renderDiagramSvg(model, layout, options?)` → SVG markup string (plus the legend when `legend` is set).
+- `renderDiagramLegend(options?)` → the colour-key markup on its own.
 - `cleanupHydratedDiagram(container)` — tear down listeners/popovers/scope-nav.
 - `hideDiagramPopover()` / `hideDiagramPopoverForPageEvent(event)` — popover control.
 - `isInformationFlowEdge(edge)` — predicate for flow edges.
@@ -226,5 +252,6 @@ import "graphpaper/diagram.css";
 ```
 
 It's self-contained (sensible dark defaults) and themeable via CSS custom
-properties — `--gp-blue`, `--gp-muted`, `--gp-text`, `--gp-line`, `--gp-radius`
-(legacy `--blue`/`--muted`/`--text`/`--line`/`--radius` are also honored).
+properties — `--gp-blue`, `--gp-muted`, `--gp-text`, `--gp-line`, `--gp-radius`,
+`--gp-halo` (edge-label backdrop) and `--gp-panel` (pan/zoom buttons and legend
+backdrop); legacy `--blue`/`--muted`/`--text`/`--line`/`--radius` are also honored.

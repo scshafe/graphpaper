@@ -260,6 +260,13 @@ function normalizeOptions(options = {}) {
     visibleRows: options.visibleRows ?? 5,
     showEdgeLabels: options.showEdgeLabels ?? false,
     edgeLabelPlacement: ["center", "tail", "head"].includes(options.edgeLabelPlacement) ? options.edgeLabelPlacement : "center",
+    // The «type» line + divider at the top of each node (default on). Off: the colour carries the
+    // kind, the nodes shrink by the band, and a legend can say what the colours mean.
+    stereotypes: options.stereotypes ?? true,
+    // Colour-key entries (renderDiagramLegend); none → no legend markup, byte-identical.
+    legend: Array.isArray(options.legend) ? options.legend : [],
+    legendTitle: options.legendTitle ?? "Key",
+    legendVisible: options.legendVisible ?? true,
     minWidth: options.minWidth ?? 680,
     minHeight: options.minHeight ?? 260,
     sourceLabel: options.sourceLabel ?? "ELK layered diagram layout",
@@ -579,21 +586,38 @@ function visibleRows(node, options) {
   return (node.rows ?? []).slice(0, Math.max(0, options.visibleRows));
 }
 
+// The «type» band at the top of a node: stereotype text + divider. `stereotypes: false` drops it
+// and everything below moves up by this much.
+const STEREOTYPE_BAND = 26;
+
+function stereotypeBand(options) {
+  return options.stereotypes === false ? STEREOTYPE_BAND : 0;
+}
+
+function stereotypeMarkup(node, width, options, x) {
+  if (options.stereotypes === false) return "";
+  return `
+    <text class="map-node-stereotype" x="${x}" y="18">«${esc(node.type)}»</text>
+    <line class="map-node-divider" x1="0" y1="30" x2="${width}" y2="30"></line>`;
+}
+
 function tableNodeSize(node, options) {
   const displayedRows = visibleRows(node, options).length;
   const moreRows = Math.max(0, (node.rows?.length ?? 0) - displayedRows) > 0 ? 1 : 0;
+  const band = stereotypeBand(options);
   return {
     width: options.nodeWidth ?? TABLE_NODE_WIDTH,
-    height: Math.max(110, 62 + (displayedRows + moreRows) * TABLE_ROW_HEIGHT)
+    height: Math.max(110 - band, 62 - band + (displayedRows + moreRows) * TABLE_ROW_HEIGHT)
   };
 }
 
 function componentNodeSize(node, options) {
   const displayedRows = options.compact ? [] : visibleRows(node, { ...options, visibleRows: Math.min(options.visibleRows, 3) });
-  const baseHeight = options.compact ? 72 : 86;
+  const band = stereotypeBand(options);
+  const baseHeight = (options.compact ? 72 : 86) - band;
   return {
     width: options.nodeWidth ?? DEFAULT_NODE_WIDTH,
-    height: Math.max(options.nodeHeight ?? DEFAULT_NODE_HEIGHT, baseHeight + displayedRows.length * COMPONENT_ROW_HEIGHT)
+    height: Math.max(options.nodeHeight ?? (DEFAULT_NODE_HEIGHT - band), baseHeight + displayedRows.length * COMPONENT_ROW_HEIGHT)
   };
 }
 
@@ -1004,18 +1028,17 @@ function renderTableNode(node, position, options) {
   const width = position.width;
   const height = position.height;
   const rows = visibleRows(node, options);
-  const rowText = rows.map((row, index) => `<text class="schema-column-line diagram-node-row" x="14" y="${52 + index * TABLE_ROW_HEIGHT}">${esc(row.label)}${row.value ? ` <tspan class="diagram-row-value">${esc(row.value)}</tspan>` : ""}${renderRowBadges(row.badges)}</text>`).join("");
+  const band = stereotypeBand(options);
+  const rowText = rows.map((row, index) => `<text class="schema-column-line diagram-node-row" x="14" y="${52 - band + index * TABLE_ROW_HEIGHT}">${esc(row.label)}${row.value ? ` <tspan class="diagram-row-value">${esc(row.value)}</tspan>` : ""}${renderRowBadges(row.badges)}</text>`).join("");
   const remainingRows = Math.max(0, (node.rows?.length ?? 0) - rows.length);
   const scoped = scopedNodeClass(node, options);
   const scopeAria = scoped ? " · contains a sub-diagram (activate to dig in)" : "";
   return `<g class="map-node schema-node diagram-node diagram-node-table node-type-${classToken(node.type)} ${metadataClassNames(node)}${scoped ? " " + scoped : ""}" data-diagram-node="${esc(node.id)}" data-node-id="${esc(node.id)}" data-schema-table="${esc(node.metadata?.tableName ?? node.title)}" tabindex="0" focusable="true" role="group" aria-label="${esc(`${node.title} table schema. Hover or focus to inspect rows and details.${scopeAria}`)}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})">
     <title>${esc(node.subtitle ?? `${node.title}: ${node.rows?.length ?? 0} rows`)}</title>
-    <rect width="${width}" height="${height}" rx="10"></rect>
-    <text class="map-node-stereotype" x="14" y="18">«${esc(node.type)}»</text>
-    <line class="map-node-divider" x1="0" y1="30" x2="${width}" y2="30"></line>
-    <text class="schema-table-name map-node-title" x="14" y="43">${esc(node.title)}</text>
+    <rect width="${width}" height="${height}" rx="10"></rect>${stereotypeMarkup(node, width, options, 14)}
+    <text class="schema-table-name map-node-title" x="14" y="${43 - band}">${esc(node.title)}</text>
     ${rowText}
-    ${remainingRows > 0 ? `<text class="schema-column-more" x="14" y="${52 + rows.length * TABLE_ROW_HEIGHT}">+ ${esc(remainingRows)} more rows</text>` : ""}${scopeAffordanceMarkup(node, width, options)}
+    ${remainingRows > 0 ? `<text class="schema-column-more" x="14" y="${52 - band + rows.length * TABLE_ROW_HEIGHT}">+ ${esc(remainingRows)} more rows</text>` : ""}${scopeAffordanceMarkup(node, width, options)}
   </g>`;
 }
 
@@ -1085,18 +1108,17 @@ function renderComponentNode(node, position, options) {
   const width = position.width;
   const height = position.height;
   const rows = options.compact ? [] : visibleRows(node, { ...options, visibleRows: Math.min(options.visibleRows, 3) });
-  const rowText = rows.map((row, index) => `<text class="diagram-node-row component-node-row" x="12" y="${78 + index * COMPONENT_ROW_HEIGHT}">${esc(row.label)}${row.value ? `: ${esc(shortRef(row.value, 24))}` : ""}</text>`).join("");
+  const band = stereotypeBand(options);
+  const rowText = rows.map((row, index) => `<text class="diagram-node-row component-node-row" x="12" y="${78 - band + index * COMPONENT_ROW_HEIGHT}">${esc(row.label)}${row.value ? `: ${esc(shortRef(row.value, 24))}` : ""}</text>`).join("");
   const statusClass = node.status ? `component-status-${classToken(node.status)}` : "";
   const subtitle = node.subtitle ?? node.status ?? "";
   const scoped = scopedNodeClass(node, options);
   const scopeAria = scoped ? " · contains a sub-diagram (activate to dig in)" : "";
   return `<g class="map-node diagram-node component-node ${statusClass} node-type-${classToken(node.type)} ${metadataClassNames(node)}${scoped ? " " + scoped : ""}" data-diagram-node="${esc(node.id)}" data-node-id="${esc(node.id)}" tabindex="0" focusable="true" role="group" aria-label="${esc(`${node.title} ${node.type}${node.status ? ` ${node.status}` : ""}. Hover or focus to inspect details.${scopeAria}`)}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})">
     <title>${esc([node.title, node.status, node.type].filter(Boolean).join(": "))}</title>
-    <rect width="${width}" height="${height}" rx="10"></rect>
-    <text class="map-node-stereotype" x="12" y="18">«${esc(node.type)}»</text>
-    <line class="map-node-divider" x1="0" y1="30" x2="${width}" y2="30"></line>
-    <text class="map-node-title" x="12" y="48">${esc(shortRef(node.title, 24))}</text>
-    ${subtitle ? `<text class="map-node-meta" x="12" y="64">${esc(shortRef(subtitle, 28))}</text>` : ""}
+    <rect width="${width}" height="${height}" rx="10"></rect>${stereotypeMarkup(node, width, options, 12)}
+    <text class="map-node-title" x="12" y="${48 - band}">${esc(shortRef(node.title, 24))}</text>
+    ${subtitle ? `<text class="map-node-meta" x="12" y="${64 - band}">${esc(shortRef(subtitle, 28))}</text>` : ""}
     ${rowText}${scopeAffordanceMarkup(node, width, options)}
   </g>`;
 }
@@ -1123,6 +1145,35 @@ function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefine
   const x = ((from.centerX + to.centerX) / 2).toFixed(1);
   const y = ((from.centerY + to.centerY) / 2 - 6).toFixed(1);
   return `<text class="${labelClass}" x="${x}" y="${y}">${text}</text>`;
+}
+
+// ---- Legend (colour key) -------------------------------------------------------
+// `options.legend` entries say what the colours mean. Each swatch wears the classes of the node or
+// edge it stands for (`map-node node-type-<type> component-status-<status>`, `map-edge
+// edge-kind-<kind> …`), so whatever stylesheet colours the diagram colours the key the same way —
+// one source of truth, no palette to keep in step. Rendered after the SVG and positioned by CSS
+// inside the (positioned) container; enablePanZoom adds a Key button that shows and hides it.
+function legendSwatch(entry) {
+  if (entry.edge) {
+    const kind = entry.edge.kind ?? "edge";
+    const flavor = entry.edge.flavor ?? kind;
+    const flow = entry.edge.flow ? " map-edge-flow" : "";
+    return `<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-edge-group"><path class="map-edge edge-kind-${classToken(kind)} edge-flavor-${classToken(flavor)}${flow}" d="M 1 7 L 21 7"></path></g></svg>`;
+  }
+  const status = entry.status ? ` component-status-${classToken(entry.status)}` : "";
+  return `<svg class="diagram-legend-swatch" viewBox="0 0 22 14" aria-hidden="true"><g class="map-node component-node node-type-${classToken(entry.type ?? "node")}${status}"><rect width="22" height="14" rx="3"></rect></g></svg>`;
+}
+
+function legendMarkup(options) {
+  const entries = options.legend.filter((entry) => entry && entry.label);
+  if (entries.length === 0) return "";
+  const items = entries.map((entry) => `<li class="diagram-legend-item">${legendSwatch(entry)}<span class="diagram-legend-label">${esc(entry.label)}</span></li>`).join("");
+  return `<div class="diagram-legend" role="group" aria-label="${esc(options.legendTitle)}"${options.legendVisible ? "" : ' hidden=""'}><div class="diagram-legend-title">${esc(options.legendTitle)}</div><ul class="diagram-legend-list">${items}</ul></div>`;
+}
+
+/** The colour key on its own (what renderDiagramSvg appends after the SVG when `legend` is set). */
+export function renderDiagramLegend(inputOptions = {}) {
+  return legendMarkup(normalizeOptions(inputOptions));
 }
 
 export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
@@ -1202,6 +1253,7 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
   const lifecycleClass = lifecycle ? ` diagram-lifecycle diagram-lifecycle-${lifecycle.state}` : "";
   const stagedClass = staged ? " diagram-staged" : "";
   const ariaLabel = lifecycle ? `${options.ariaLabel} (${lifecycle.label})` : options.ariaLabel;
+  const legend = legendMarkup(options);
   return `${caption}
     <svg class="diagram-svg ${svgKindClass} diagram-kind-${classToken(diagram.kind)}${lifecycleClass}${stagedClass}" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="${esc(ariaLabel)}">
       <defs>
@@ -1212,7 +1264,8 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
       ${scopeBoundary}` : ""}
       <g class="map-nodes">${nodeGroups}</g>${watermark ? `
       ${watermark}` : ""}
-    </svg>`;
+    </svg>${legend ? `
+    ${legend}` : ""}`;
 }
 
 function ensureDiagramPopover(target = activePopoverTarget) {
@@ -2210,7 +2263,14 @@ function buildPanZoomControls(doc, actions) {
   wrap.appendChild(make("+", "Zoom in", actions.zoomIn));
   wrap.appendChild(make("−", "Zoom out", actions.zoomOut));
   wrap.appendChild(make("⤢", "Fit to view", actions.fit));
-  return wrap;
+  let keyButton = null;
+  if (actions.toggleLegend) {
+    keyButton = make("Key", "Show or hide the key", actions.toggleLegend);
+    keyButton.className = "diagram-panzoom-btn diagram-panzoom-key";
+    keyButton.setAttribute("aria-pressed", actions.legendShown ? "true" : "false");
+    wrap.appendChild(keyButton);
+  }
+  return { element: wrap, keyButton };
 }
 
 export function disablePanZoom(container) {
@@ -2234,6 +2294,26 @@ export function enablePanZoom(container, inputOptions = {}) {
   const maxScale = inputOptions.maxScale ?? 8;
   const zoomStep = inputOptions.zoomStep ?? 1.2;
   const showControls = inputOptions.panZoomControls ?? true;
+
+  // The colour key (renderDiagramSvg emits it when `legend` is set): a Key button on the controls
+  // shows and hides it, and the choice is remembered per diagram in localStorage where there is one.
+  const legendEl = container.querySelector(".diagram-legend");
+  const legendStorageKey = `graphpaper.legend.${inputOptions.diagramId ?? "diagram"}`;
+  const legendStore = (() => { try { return win.localStorage ?? null; } catch { return null; } })();
+  if (legendEl) {
+    let remembered = null;
+    try { remembered = legendStore?.getItem(legendStorageKey) ?? null; } catch { remembered = null; }
+    if (remembered === "hidden") legendEl.hidden = true;
+    else if (remembered === "shown") legendEl.hidden = false;
+  }
+  let keyButton = null;
+  const toggleLegend = legendEl
+    ? () => {
+      legendEl.hidden = !legendEl.hidden;
+      try { legendStore?.setItem(legendStorageKey, legendEl.hidden ? "hidden" : "shown"); } catch { /* no storage: the choice lasts the page */ }
+      keyButton?.setAttribute?.("aria-pressed", legendEl.hidden ? "false" : "true");
+    }
+    : null;
 
   const base = parsePanZoomViewBox(svg.getAttribute?.("viewBox")) ?? { x: 0, y: 0, w: 1000, h: 1000 };
   const view = { ...base };
@@ -2315,7 +2395,15 @@ export function enablePanZoom(container, inputOptions = {}) {
 
   let controlsEl = null;
   if (showControls && typeof container.appendChild === "function") {
-    controlsEl = buildPanZoomControls(doc, { zoomIn: () => zoomCenter(zoomStep), zoomOut: () => zoomCenter(1 / zoomStep), fit });
+    const controls = buildPanZoomControls(doc, {
+      zoomIn: () => zoomCenter(zoomStep),
+      zoomOut: () => zoomCenter(1 / zoomStep),
+      fit,
+      toggleLegend,
+      legendShown: legendEl ? !legendEl.hidden : false
+    });
+    controlsEl = controls.element;
+    keyButton = controls.keyButton;
     container.appendChild(controlsEl);
   }
 

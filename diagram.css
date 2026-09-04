@@ -5,7 +5,8 @@
  * Self-contained: every theme value has an inline fallback, so it renders
  * correctly with no setup. To theme it, define these CSS custom properties on a
  * parent (e.g. `:root`) and they override the fallbacks:
- *   --gp-blue, --gp-muted, --gp-text, --gp-line, --gp-radius, --gp-halo (edge-label backdrop)
+ *   --gp-blue, --gp-muted, --gp-text, --gp-line, --gp-radius, --gp-halo (edge-label backdrop),
+ *   --gp-panel (pan/zoom buttons + legend backdrop)
  * (legacy `--blue` / `--muted` / `--text` / `--line` / `--radius` are also honored).
  *
  * App-layout concerns (the figure/card wrapper, loading states, list views) are
@@ -149,9 +150,21 @@
   font-size: 16px; line-height: 1; cursor: pointer; padding: 0;
   border: 1px solid var(--gp-line, var(--line, rgba(183, 203, 231, 0.18)));
   border-radius: var(--gp-radius, var(--radius, 10px));
-  background: rgba(8, 17, 31, 0.86);
+  background: var(--gp-panel, rgba(8, 17, 31, 0.86));
   color: var(--gp-text, var(--text, #eff6ff));
 }
+.diagram-panzoom-key { width: auto; padding: 0 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+.diagram-panzoom-key[aria-pressed="true"] { border-color: var(--gp-blue, var(--blue, #6cb6ff)); }
+/* Legend (colour key): swatches wear the nodes' and edges' own classes, so they take whatever colours
+   the stylesheet gives the diagram. Sits in the positioned container; the Key button toggles it. */
+.diagram-legend { position: absolute; left: 10px; bottom: 10px; z-index: 5; padding: 8px 10px 9px; border: 1px solid var(--gp-line, var(--line, rgba(183, 203, 231, 0.18))); border-radius: var(--gp-radius, var(--radius, 10px)); background: var(--gp-panel, rgba(8, 17, 31, 0.86)); color: var(--gp-text, var(--text, #eff6ff)); font: 11.5px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: min(300px, calc(100% - 20px)); }
+.diagram-legend[hidden] { display: none; }
+.diagram-legend-title { margin: 0 0 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gp-muted, var(--muted, #9fb0c8)); }
+.diagram-legend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.diagram-legend-item { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.diagram-legend-swatch { flex: none; width: 22px; height: 14px; overflow: visible; }
+.diagram-legend-swatch .map-node rect { stroke-width: 1.5; }
+.diagram-legend-swatch .map-edge { stroke-width: 2.5; }
 .diagram-panzoom-btn:hover { border-color: var(--gp-blue, var(--blue, #6cb6ff)); color: var(--gp-blue, var(--blue, #6cb6ff)); }
 
 /* ---- Scope / drill-down (P0-B3) ---- */

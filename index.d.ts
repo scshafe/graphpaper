@@ -132,6 +132,17 @@ export type DiagramEdgeRouting = "ORTHOGONAL" | "POLYLINE" | "SPLINES";
 export type DiagramNodeRenderer = (...args: any[]) => string;
 
 /**
+ * One row of the colour key: a node kind (`type`, optionally with a `status`) or an edge kind. The
+ * swatch wears the same classes as the nodes/edges it stands for, so the stylesheet colours both.
+ */
+export interface DiagramLegendEntry {
+  label: string;
+  type?: string;
+  status?: string;
+  edge?: { kind?: string; flavor?: string; flow?: boolean };
+}
+
+/**
  * An ELK-compatible layout engine: `layout(graph)` resolves the same graph with positions and edge
  * sections filled in — what `new ELK()` from `elkjs` provides.
  */
@@ -161,6 +172,14 @@ export interface DiagramRenderOptions {
    * target — the flowchart convention for decisions — adding no layers.
    */
   edgeLabelPlacement?: "center" | "tail" | "head";
+  /** Draw the «type» line and divider at the top of each node (default true). Off: the colour carries the kind and every node shrinks by the band. */
+  stereotypes?: boolean;
+  /** Colour-key entries, rendered after the SVG as `.diagram-legend` (absent → no legend). The container must be positioned; pan/zoom makes it so. */
+  legend?: DiagramLegendEntry[];
+  /** Heading of the key (default "Key"). */
+  legendTitle?: string;
+  /** Start with the key shown (default true). enablePanZoom adds a Key button that toggles it and remembers the choice per `diagramId`. */
+  legendVisible?: boolean;
   minWidth?: number;
   minHeight?: number;
   title?: string;
@@ -301,6 +320,9 @@ export function layoutDiagram(diagram: DiagramModelInput, options?: DiagramRende
 /** Render a laid-out diagram to an SVG markup string. */
 export function renderDiagramSvg(diagram: DiagramModelInput, layout: DiagramLayout, options?: DiagramRenderOptions): string;
 
+/** The colour key on its own — what renderDiagramSvg appends after the SVG when `legend` is set; "" without entries. */
+export function renderDiagramLegend(options?: DiagramRenderOptions): string;
+
 /** Hide the active node popover (or the one for `target`). */
 export function hideDiagramPopover(target?: EventTarget | null): void;
 
@@ -318,6 +340,8 @@ export interface PanZoomOptions {
   maxScale?: number;
   zoomStep?: number;
   panZoomControls?: boolean;
+  /** Keys the remembered legend visibility (`graphpaper.legend.<diagramId>` in localStorage). */
+  diagramId?: string;
 }
 
 /** Enable viewBox-based pan / zoom / fit-to-view on an already-hydrated diagram container. Returns a cleanup function. */
