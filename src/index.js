@@ -228,7 +228,10 @@ function compactText(value) {
   }
 }
 
-function getElkLayoutEngine() {
+function getElkLayoutEngine(options) {
+  // An injected engine wins: a server (Node has no `window`) or a test hands in `new ELK()` from
+  // `elkjs` directly instead of installing a global. Otherwise `window.ELK`, the browser default.
+  if (typeof options?.layoutEngine?.layout === "function") return options.layoutEngine;
   const browserWindow = globalThis.window;
   if (!browserWindow?.ELK) return undefined;
   elkLayoutEngine ??= new browserWindow.ELK();
@@ -267,6 +270,7 @@ function normalizeOptions(options = {}) {
     markerId: classToken(options.markerId || `diagram-arrow-${classToken(options.diagramId ?? "default")}`),
     nodeWidth: options.nodeWidth,
     nodeHeight: options.nodeHeight,
+    layoutEngine: options.layoutEngine,
     drawHierarchyEdgesWhenNested: options.drawHierarchyEdgesWhenNested ?? false,
     panZoom: options.panZoom ?? false,
     panZoomControls: options.panZoomControls ?? true,
@@ -930,7 +934,7 @@ function layoutFromElk(diagram, graph, options, sourceLabel, containmentDepthMap
 
 export async function layoutDiagram(diagram, inputOptions = {}) {
   const options = normalizeOptions({ ...inputOptions, diagramId: diagram?.id });
-  const elk = getElkLayoutEngine();
+  const elk = getElkLayoutEngine(options);
   if (!elk) return fallbackLayeredLayout(diagram, options, options.elkUnavailableSourceLabel);
   try {
     const { graph: elkGraph, containmentDepths: depthMap, hierarchyActive } = elkGraphForDiagram(diagram, options);

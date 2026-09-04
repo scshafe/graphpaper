@@ -33,6 +33,20 @@ The renderer uses an ELK engine exposed as `window.ELK` (the same global
 back to a built-in layered layout, so it degrades gracefully. `elkjs` is an
 optional peer dependency.
 
+Where there is no `window` — a server rendering SVG in Node, a test — hand the
+engine in as `layoutEngine`; it takes precedence over the global. Do not fake a
+`window` for elkjs instead: its bundle reads `window.Error` and throws.
+
+```js
+import { createRequire } from "node:module";
+import { layoutDiagram, renderDiagramSvg } from "graphpaper";
+
+const ELK = createRequire(import.meta.url)("elkjs/lib/elk.bundled.js");
+const options = { direction: "DOWN", layoutEngine: new ELK() };
+const layout = await layoutDiagram(model, options);
+const svg = renderDiagramSvg(model, layout, options); // no DOM needed
+```
+
 ## Scope / drill-down (nested diagrams)
 
 A node can **contain a sub-diagram** — a sense of "scope". The sub-diagram is **not** rendered

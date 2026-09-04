@@ -129,6 +129,14 @@ export type DiagramEdgeRouting = "ORTHOGONAL" | "POLYLINE" | "SPLINES";
 /** Renders a single node type to SVG inner markup, given the node and its geometry. */
 export type DiagramNodeRenderer = (...args: any[]) => string;
 
+/**
+ * An ELK-compatible layout engine: `layout(graph)` resolves the same graph with positions and edge
+ * sections filled in — what `new ELK()` from `elkjs` provides.
+ */
+export interface DiagramLayoutEngine {
+  layout(graph: any): Promise<any>;
+}
+
 export interface DiagramRenderOptions {
   direction?: DiagramDirection;
   edgeRouting?: DiagramEdgeRouting;
@@ -157,6 +165,13 @@ export interface DiagramRenderOptions {
   diagramId?: string;
   nodeWidth?: number;
   nodeHeight?: number;
+  /**
+   * Layout engine to use instead of `window.ELK` — e.g. `new ELK()` from `elkjs/lib/elk.bundled.js`
+   * on a server, where no `window` exists (and where handing elkjs a fake one breaks it: the bundle
+   * reads `window.Error`). Takes precedence over the global; absent, the renderer looks for
+   * `window.ELK`, then falls back to the built-in layered layout.
+   */
+  layoutEngine?: DiagramLayoutEngine;
   drawHierarchyEdgesWhenNested?: boolean;
   /** Enable pan/zoom/fit interaction on hydrate (default false). */
   panZoom?: boolean;
