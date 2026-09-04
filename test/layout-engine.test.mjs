@@ -10,7 +10,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { layoutDiagram } from "../src/index.js";
+import { layoutDiagram, renderDiagramSvg } from "../src/index.js";
 
 const model = {
   id: "engine-test",
@@ -86,4 +86,43 @@ test("a failing engine degrades to the built-in layout; no engine at all uses th
   assert.equal(unavailable.sourceLabel, "no engine anywhere");
   const ignored = await layoutDiagram(model, { layoutEngine: { notAnEngine: true }, elkUnavailableSourceLabel: "not an engine" });
   assert.equal(ignored.sourceLabel, "not an engine", "an object without layout() is not an engine");
+});
+
+test("shown edge labels are handed to the engine and rendered where it placed them", async () => {
+  const engine = {
+    calls: [],
+    async layout(graph) {
+      this.calls.push(graph);
+      return {
+        ...graph,
+        width: 400,
+        height: 300,
+        children: graph.children.map((child, index) => ({ ...child, x: 10, y: 120 * index })),
+        edges: graph.edges.map((edge) => ({
+          ...edge,
+          sections: [{ startPoint: { x: 80, y: 90 }, endPoint: { x: 80, y: 120 } }],
+          labels: edge.labels?.map((label) => ({ ...label, x: 100, y: 95 }))
+        }))
+      };
+    }
+  };
+  const shown = await layoutDiagram(model, { layoutEngine: engine, showEdgeLabels: true });
+  const sent = engine.calls[0].edges[0].labels;
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].text, "goes");
+  assert.ok(sent[0].width > 0 && sent[0].height > 0, "the engine gets a box to reserve");
+  assert.equal(sent[0].layoutOptions["elk.edgeLabels.inline"], "true");
+  const key = [...shown.edgePaths.keys()][0];
+  assert.deepEqual(shown.edgeLabelBoxes.get(key), { x: 132, y: 127, width: sent[0].width, height: 14 }, "the box comes back offset like the sections");
+  const svg = renderDiagramSvg(model, shown, { showEdgeLabels: true });
+  assert.ok(svg.includes(`<text class="map-edge-label" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box");
+
+  // A label the diagram will not show is not sent to the engine at all, and a layout without
+  // boxes renders labels at the path midpoint exactly as before.
+  engine.calls.length = 0;
+  const hidden = await layoutDiagram(model, { layoutEngine: engine });
+  assert.equal(engine.calls[0].edges[0].labels, undefined);
+  assert.equal(hidden.edgeLabelBoxes.size, 0);
+  const midpoint = renderDiagramSvg(model, hidden, { showEdgeLabels: true });
+  assert.ok(midpoint.includes('class="map-edge-label"') && !midpoint.includes('text-anchor="middle"'), "midpoint placement without a box");
 });

@@ -888,11 +888,39 @@ function elkGraphForDiagram(diagram, options) {
       edges: edgesForLayout(diagram, options, hierarchyActive).map((edge, index) => ({
         id: edgeKey(edge, index),
         sources: [edge.from],
-        targets: [edge.to]
+        targets: [edge.to],
+        ...elkEdgeLabels(edge, options)
       }))
     },
     hierarchyActive,
     containmentDepths: containmentDepths(diagram, containment.parentByChild)
+  };
+}
+
+// Edge labels the diagram will show are handed to ELK as inline labels, so the layout reserves
+// room for them on a straight run of the edge instead of the renderer dropping them at the path
+// midpoint, where they collide with other edges and nodes. Width is estimated for the 10px label
+// font; the renderer centres the text in the box ELK returns.
+const EDGE_LABEL_MAX_CHARS = 34;
+
+function edgeLabelText(edge) {
+  return shortRef(edge.label, EDGE_LABEL_MAX_CHARS);
+}
+
+function edgeLabelShown(edge, options) {
+  return Boolean(edge.label) && (options.showEdgeLabels || isInformationFlowEdge(edge));
+}
+
+function elkEdgeLabels(edge, options) {
+  if (!edgeLabelShown(edge, options)) return {};
+  const text = edgeLabelText(edge);
+  return {
+    labels: [{
+      text,
+      width: Math.ceil(text.length * 5.6 + 6),
+      height: 14,
+      layoutOptions: { "elk.edgeLabels.inline": "true" }
+    }]
   };
 }
 
@@ -916,6 +944,17 @@ function layoutFromElk(diagram, graph, options, sourceLabel, containmentDepthMap
       .map((point) => ({ x: point.x + DEFAULT_LAYOUT_PADDING, y: point.y + DEFAULT_LAYOUT_PADDING }));
     edgePaths.set(edge.id, pointListToPath(points));
   }
+  const edgeLabelBoxes = new Map();
+  for (const edge of graph.edges ?? []) {
+    const label = edge.labels?.[0];
+    if (!label || !Number.isFinite(label.x) || !Number.isFinite(label.y)) continue;
+    edgeLabelBoxes.set(edge.id, {
+      x: label.x + DEFAULT_LAYOUT_PADDING,
+      y: label.y + DEFAULT_LAYOUT_PADDING,
+      width: label.width ?? 0,
+      height: label.height ?? 0
+    });
+  }
 
   const nodeBounds = Array.from(positions.values()).reduce((bounds, position) => ({
     maxX: Math.max(bounds.maxX, position.x + position.width),
@@ -926,6 +965,7 @@ function layoutFromElk(diagram, graph, options, sourceLabel, containmentDepthMap
     height: Math.max(options.minHeight, Math.ceil(Math.max(graph.height ?? 0, nodeBounds.maxY) + DEFAULT_LAYOUT_PADDING)),
     positions,
     edgePaths,
+    edgeLabelBoxes,
     containmentDepths: containmentDepthMap,
     drawHierarchyEdges: !hierarchyActive || options.drawHierarchyEdgesWhenNested,
     sourceLabel
@@ -1059,14 +1099,21 @@ function edgeLabel(edge, diagram) {
   return [fromTitle, "→", toTitle, edge.label, edge.type, edge.description].filter(Boolean).join(" · ");
 }
 
-function renderEdgeLabel(edge, from, to, options, isFlow = false) {
+function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefined) {
   // Information-flow edges always surface their label on the diagram: the flow verb (reads,
   // publishes, …) is the payload, not decoration. Other edge types stay opt-in via showEdgeLabels.
-  if ((!options.showEdgeLabels && !isFlow) || !edge.label) return "";
+  if (!edgeLabelShown(edge, options)) return "";
+  const labelClass = isFlow ? "map-edge-label map-edge-flow-label" : "map-edge-label";
+  const text = esc(edgeLabelText(edge));
+  if (box) {
+    // The layout engine placed this label (an ELK inline label): centre the text in its box.
+    const x = (box.x + box.width / 2).toFixed(1);
+    const y = (box.y + box.height - 3).toFixed(1);
+    return `<text class="${labelClass}" x="${x}" y="${y}" text-anchor="middle">${text}</text>`;
+  }
   const x = ((from.centerX + to.centerX) / 2).toFixed(1);
   const y = ((from.centerY + to.centerY) / 2 - 6).toFixed(1);
-  const labelClass = isFlow ? "map-edge-label map-edge-flow-label" : "map-edge-label";
-  return `<text class="${labelClass}" x="${x}" y="${y}">${esc(shortRef(edge.label, 34))}</text>`;
+  return `<text class="${labelClass}" x="${x}" y="${y}">${text}</text>`;
 }
 
 export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
@@ -1104,7 +1151,7 @@ export function renderDiagramSvg(diagram, layout, inputOptions = {}) {
       <title>${esc(edgeLabel(edge, diagram))}</title>
       <path class="map-edge-hit" d="${esc(path)}" pointer-events="stroke"></path>
       <path class="${pathClass}" d="${esc(path)}" marker-end="url(#${edgeMarkerId})"></path>
-      ${renderEdgeLabel(edge, from, to, options, isFlow)}
+      ${renderEdgeLabel(edge, from, to, options, isFlow, layout.edgeLabelBoxes?.get(edgeKey(edge, index)))}
     </g>`];
   }).join("");
 

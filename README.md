@@ -33,6 +33,11 @@ The renderer uses an ELK engine exposed as `window.ELK` (the same global
 back to a built-in layered layout, so it degrades gracefully. `elkjs` is an
 optional peer dependency.
 
+With an engine present, the edge labels a diagram shows (`showEdgeLabels`, or
+information-flow edges) are placed by ELK as inline labels — on a straight run
+of their edge, with room reserved — instead of at the path midpoint, where
+they collide with neighbours. Theme the label backdrop with `--gp-halo`.
+
 Where there is no `window` — a server rendering SVG in Node, a test — hand the
 engine in as `layoutEngine`; it takes precedence over the global. Do not fake a
 `window` for elkjs instead: its bundle reads `window.Error` and throws.

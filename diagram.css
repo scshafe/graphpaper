@@ -5,7 +5,7 @@
  * Self-contained: every theme value has an inline fallback, so it renders
  * correctly with no setup. To theme it, define these CSS custom properties on a
  * parent (e.g. `:root`) and they override the fallbacks:
- *   --gp-blue, --gp-muted, --gp-text, --gp-line, --gp-radius
+ *   --gp-blue, --gp-muted, --gp-text, --gp-line, --gp-radius, --gp-halo (edge-label backdrop)
  * (legacy `--blue` / `--muted` / `--text` / `--line` / `--radius` are also honored).
  *
  * App-layout concerns (the figure/card wrapper, loading states, list views) are
@@ -66,7 +66,7 @@
 .map-edge-group-flow[data-edge-flow="emits"] .map-edge-flow, .map-edge-group-flow[data-edge-flow="streams"] .map-edge-flow { stroke: rgba(245, 197, 66, 0.85); }
 .diagram-arrow-marker-flow path { fill: rgba(108, 182, 255, 0.92); }
 .map-edge-flow-label { fill: var(--gp-text, var(--text, #eff6ff)); font-weight: 600; }
-.map-edge-label { fill: var(--gp-muted, var(--muted, #9fb0c8)); font-size: 10px; paint-order: stroke; stroke: rgba(8, 17, 31, 0.9); stroke-width: 3px; stroke-linejoin: round; }
+.map-edge-label { fill: var(--gp-muted, var(--muted, #9fb0c8)); font-size: 10px; paint-order: stroke; stroke: var(--gp-halo, rgba(8, 17, 31, 0.9)); stroke-width: 3px; stroke-linejoin: round; }
 @keyframes gp-edge-flow-march { to { stroke-dashoffset: -24; } }
 @media (prefers-reduced-motion: reduce) { .map-edge.map-edge-flow { animation: none; } }
 

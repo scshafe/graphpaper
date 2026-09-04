@@ -118,6 +118,8 @@ export interface DiagramLayout {
   height: number;
   positions: Map<string, DiagramNodePosition>;
   edgePaths: Map<string, string>;
+  /** Edge-label boxes placed by the layout engine (ELK inline labels), keyed like `edgePaths`; absent → labels sit at the path midpoint. */
+  edgeLabelBoxes?: Map<string, { x: number; y: number; width: number; height: number }>;
   containmentDepths?: Map<string, number>;
   drawHierarchyEdges?: boolean;
   sourceLabel: string;
