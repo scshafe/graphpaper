@@ -2276,6 +2276,9 @@ export function enablePanZoom(container, inputOptions = {}) {
   let dragging = false, lastX = 0, lastY = 0;
   const onPointerDown = (event) => {
     if (event.button != null && event.button !== 0) return;
+    // A drag is a pan, not a text selection: cancel the pointer-down default so the browser never
+    // starts selecting text across the page while the map moves (click and focus still fire).
+    event.preventDefault?.();
     dragging = true; lastX = event.clientX; lastY = event.clientY;
     if (svg.style) svg.style.cursor = "grabbing";
     svg.setPointerCapture?.(event.pointerId);
@@ -2298,6 +2301,8 @@ export function enablePanZoom(container, inputOptions = {}) {
   if (svg.style) {
     svg.style.cursor = "grab";
     svg.style.touchAction = "none";
+    svg.style.userSelect = "none";
+    svg.style.webkitUserSelect = "none";
     svg.style.width = "100%";
     svg.style.minWidth = "0";
     svg.style.maxWidth = "none";
@@ -2320,7 +2325,7 @@ export function enablePanZoom(container, inputOptions = {}) {
     win.removeEventListener?.("pointermove", onPointerMove);
     win.removeEventListener?.("pointerup", onPointerUp);
     controlsEl?.remove?.();
-    if (svg.style) { svg.style.cursor = ""; svg.style.touchAction = ""; }
+    if (svg.style) { svg.style.cursor = ""; svg.style.touchAction = ""; svg.style.userSelect = ""; svg.style.webkitUserSelect = ""; }
     if (container.style) container.style.position = prevPosition;
   };
   panZoomBindings.set(container, cleanup);
