@@ -116,10 +116,10 @@ test("shown edge labels are handed to the engine and rendered where it placed th
   assert.deepEqual(shown.edgeLabelBoxes.get(key), { x: 132, y: 127, width: sent[0].width, height: 14 }, "the box comes back offset like the sections");
   const svg = renderDiagramSvg(model, shown, { showEdgeLabels: true });
   const escapedKey = key.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  assert.ok(svg.includes(`<text class="map-edge-label" data-diagram-edge="${escapedKey}" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box and carries its edge key");
+  assert.ok(svg.includes(`<text class="map-edge-label edge-kind-unknown edge-flavor-unknown" data-diagram-edge="${escapedKey}" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box, carries its edge key, and wears the edge's kind and flavour");
   // Every path is painted before any word, so a later edge cannot strike through an earlier label.
-  assert.ok(svg.lastIndexOf('<path class="map-edge ') < svg.indexOf('<text class="map-edge-label"'), "labels sit in a layer above the paths");
-  assert.match(svg, /<\/g><g class="map-edge-label-layer"><text class="map-edge-label"/u);
+  assert.ok(svg.lastIndexOf('<path class="map-edge ') < svg.indexOf('<text class="map-edge-label'), "labels sit in a layer above the paths");
+  assert.match(svg, /<\/g><g class="map-edge-label-layer"><text class="map-edge-label /u);
   assert.ok(svg.indexOf('class="map-edge-label-layer"') < svg.indexOf('<g class="map-nodes">'), "but still below the nodes");
 
 
@@ -138,5 +138,5 @@ test("shown edge labels are handed to the engine and rendered where it placed th
   assert.equal(engine.calls[0].edges[0].labels, undefined);
   assert.equal(hidden.edgeLabelBoxes.size, 0);
   const midpoint = renderDiagramSvg(model, hidden, { showEdgeLabels: true });
-  assert.ok(midpoint.includes('class="map-edge-label"') && !midpoint.includes('text-anchor="middle"'), "midpoint placement without a box");
+  assert.ok(midpoint.includes('class="map-edge-label ') && !midpoint.includes('text-anchor="middle"'), "midpoint placement without a box");
 });

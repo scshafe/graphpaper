@@ -86,6 +86,14 @@ diagram — honoured under `compact`, where nodes otherwise show none — so one
 agent can carry a line such as `marks: ok | hostile` without loosening the
 whole layout.
 
+A node can carry `badges` — `["59 dead", { label: "31 waiting", tone: "warning" }]` —
+drawn as pills hung off its top-right corner, right-aligned in author order,
+outside the rect so they cost no height. The tone becomes a
+`map-node-badge-<tone>` class (the stylesheet ships `danger`, `warning`, `info`,
+`muted`); the popover lists them as chips. Edge labels wear their edge's
+`edge-kind-<kind>` and `edge-flavor-<flavor>` classes as well, so a stylesheet
+that mutes an arrow can mute its word.
+
 ## Scope / drill-down (nested diagrams)
 
 A node can **contain a sub-diagram** — a sense of "scope". The sub-diagram is **not** rendered

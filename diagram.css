@@ -208,3 +208,16 @@
 @media (prefers-reduced-motion: reduce) {
   .diagram-scope-transition-layer, .diagram-scope-transition-layer > svg { transition: none; animation: none; }
 }
+
+/* Node badges (`node.badges`): pills hung off the top-right corner. Tones colour them; a host
+   stylesheet overrides per tone. The text stays legible on any tone by being the halo colour. */
+.map-node-badge rect { fill: var(--gp-muted, var(--muted, #9fb0c8)); stroke: var(--gp-halo, var(--surface, #0b1220)); stroke-width: 1.5; }
+.map-node-badge text { fill: var(--gp-halo, var(--surface, #0b1220)); font-size: 10px; font-weight: 700; }
+.map-node-badge-danger rect { fill: #c4423d; }
+.map-node-badge-warning rect { fill: #d99a1f; }
+.map-node-badge-info rect { fill: var(--gp-blue, var(--blue, #6cb6ff)); }
+.map-node-badge-muted rect { fill: rgba(159, 176, 200, 0.6); }
+.diagram-popover-node-badges { display: flex; gap: 4px; flex-wrap: wrap; margin: 2px 0 6px; }
+.diagram-popover-badges .chip.diagram-popover-badge-danger { border-color: #c4423d; color: #c4423d; }
+.diagram-popover-badges .chip.diagram-popover-badge-warning { border-color: #d99a1f; color: #d99a1f; }
+.diagram-popover-badges .chip.diagram-popover-badge-info { border-color: var(--gp-blue, var(--blue, #6cb6ff)); color: var(--gp-blue, var(--blue, #6cb6ff)); }

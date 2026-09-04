@@ -1116,6 +1116,39 @@ function renderScopeBoundary(layout, diagram, options) {
       </g>`;
 }
 
+// ---- Node badges ------------------------------------------------------------------
+// `node.badges` are small pills hung off the node's top-right corner: a count, a state, a
+// warning — what a reader should see before hovering. Each is a string or `{ label, tone }`;
+// the tone becomes a `map-node-badge-<tone>` class for the stylesheet to colour. They sit
+// right-aligned to the corner in author order, drawn outside the rect (a node group is never
+// clipped), so they cost no node height and move nothing in the layout.
+const NODE_BADGE_HEIGHT = 16;
+
+function nodeBadges(node) {
+  if (!Array.isArray(node.badges)) return [];
+  return node.badges
+    .map((badge) => (typeof badge === "string" ? { label: badge } : badge))
+    .filter((badge) => badge && typeof badge === "object" && badge.label !== undefined && badge.label !== null && String(badge.label) !== "")
+    .map((badge) => ({
+      label: String(badge.label),
+      tone: badge.tone === undefined || badge.tone === null || badge.tone === "" ? undefined : classToken(badge.tone)
+    }));
+}
+
+function nodeBadgesMarkup(badges, width) {
+  if (badges.length === 0) return "";
+  const parts = [];
+  let right = width + 6;
+  for (let index = badges.length - 1; index >= 0; index -= 1) {
+    const badge = badges[index];
+    const badgeWidth = Math.round(badge.label.length * 6.2 + 12);
+    const x = right - badgeWidth;
+    parts.unshift(`<g class="map-node-badge${badge.tone ? ` map-node-badge-${badge.tone}` : ""}" transform="translate(${x} ${-NODE_BADGE_HEIGHT / 2})"><rect width="${badgeWidth}" height="${NODE_BADGE_HEIGHT}" rx="${NODE_BADGE_HEIGHT / 2}"></rect><text x="${(badgeWidth / 2).toFixed(1)}" y="11.5" text-anchor="middle">${esc(badge.label)}</text></g>`);
+    right = x - 4;
+  }
+  return parts.join("");
+}
+
 function renderComponentNode(node, position, options) {
   const width = position.width;
   const height = position.height;
@@ -1126,12 +1159,14 @@ function renderComponentNode(node, position, options) {
   const subtitle = node.subtitle ?? node.status ?? "";
   const scoped = scopedNodeClass(node, options);
   const scopeAria = scoped ? " · contains a sub-diagram (activate to dig in)" : "";
-  return `<g class="map-node diagram-node component-node ${statusClass} node-type-${classToken(node.type)} ${metadataClassNames(node)}${scoped ? " " + scoped : ""}" data-diagram-node="${esc(node.id)}" data-node-id="${esc(node.id)}" tabindex="0" focusable="true" role="group" aria-label="${esc(`${node.title} ${node.type}${node.status ? ` ${node.status}` : ""}. Hover or focus to inspect details.${scopeAria}`)}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})">
+  const badges = nodeBadges(node);
+  const badgeAria = badges.length > 0 ? `, ${badges.map((badge) => badge.label).join(", ")}` : "";
+  return `<g class="map-node diagram-node component-node ${statusClass} node-type-${classToken(node.type)} ${metadataClassNames(node)}${scoped ? " " + scoped : ""}" data-diagram-node="${esc(node.id)}" data-node-id="${esc(node.id)}" tabindex="0" focusable="true" role="group" aria-label="${esc(`${node.title} ${node.type}${node.status ? ` ${node.status}` : ""}${badgeAria}. Hover or focus to inspect details.${scopeAria}`)}" transform="translate(${position.x.toFixed(1)} ${position.y.toFixed(1)})">
     <title>${esc([node.title, node.status, node.type].filter(Boolean).join(": "))}</title>
     <rect width="${width}" height="${height}" rx="10"></rect>${stereotypeMarkup(node, width, options, 12)}
     <text class="map-node-title" x="12" y="${48 - band}">${esc(shortRef(node.title, 24))}</text>
     ${subtitle ? `<text class="map-node-meta" x="12" y="${64 - band}">${esc(shortRef(subtitle, 28))}</text>` : ""}
-    ${rowText}${scopeAffordanceMarkup(node, width, options)}
+    ${rowText}${nodeBadgesMarkup(badges, width)}${scopeAffordanceMarkup(node, width, options)}
   </g>`;
 }
 
@@ -1146,7 +1181,10 @@ function renderEdgeLabel(edge, from, to, options, isFlow = false, box = undefine
   // Information-flow edges always surface their label on the diagram: the flow verb (reads,
   // publishes, …) is the payload, not decoration. Other edge types stay opt-in via showEdgeLabels.
   if (!edgeLabelShown(edge, options)) return "";
-  const labelClass = isFlow ? "map-edge-label map-edge-flow-label" : "map-edge-label";
+  // The word wears its edge's kind and flavour tokens too: it lives in the label layer, not
+  // inside the edge group, so this is how a stylesheet that mutes or colours an edge reaches
+  // its label.
+  const labelClass = `map-edge-label edge-kind-${classToken(edge.metadata?.kind ?? edge.type)} edge-flavor-${classToken(edge.metadata?.flavor ?? edge.type)}${isFlow ? " map-edge-flow-label" : ""}`;
   const text = esc(edgeLabelText(edge));
   // Labels are painted in a layer above every edge path, so they carry the key
   // themselves: popover hit-testing walks up to it, and stage visibility hides
@@ -1441,6 +1479,14 @@ function appendDiagramPopoverContent(documentRef, popover, node) {
   const sections = details.sections ?? [];
   popover.append(createDiagramPopoverElement(documentRef, "div", { className: "diagram-popover-kicker", text: details.kicker ?? `${node.type} details` }));
   popover.append(createDiagramPopoverElement(documentRef, "h4", { text: details.title ?? node.title }));
+  const badges = nodeBadges(node);
+  if (badges.length > 0) {
+    const badgeList = createDiagramPopoverElement(documentRef, "div", { className: "diagram-popover-badges diagram-popover-node-badges" });
+    for (const badge of badges) {
+      badgeList.append(createDiagramPopoverElement(documentRef, "span", { className: `chip${badge.tone ? ` diagram-popover-badge-${badge.tone}` : ""}`, text: badge.label }));
+    }
+    popover.append(badgeList);
+  }
   if (node.rows?.length || node.status) {
     const counts = createDiagramPopoverElement(documentRef, "div", { className: "schema-popover-counts diagram-popover-counts" });
     if (node.rows?.length) appendPopoverCount(documentRef, counts, node.rows.length, " rows");

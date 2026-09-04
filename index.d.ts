@@ -29,6 +29,13 @@ export interface DiagramDetails {
 /** A stage reference: a 1-based stage index, or a stage id string. */
 export type DiagramStageRef = number | string;
 
+/** A pill hung off a node's top-right corner: a count, a state, a warning. */
+export interface DiagramNodeBadge {
+  label: string;
+  /** Class-safe tone token → `map-node-badge-<tone>` (the stylesheet ships danger, warning, info, muted). */
+  tone?: string;
+}
+
 export interface DiagramNode {
   id: string;
   title: string;
@@ -37,6 +44,9 @@ export interface DiagramNode {
   status?: string;
   description?: string;
   rows?: DiagramRow[];
+  /** Badges drawn outside the node's rect at its top-right, right-aligned in author order; a
+   *  string is a badge with no tone. Listed in the popover as chips. Absent ⇒ byte-identical markup. */
+  badges?: Array<string | DiagramNodeBadge>;
   /**
    * How many of `rows` this node shows on the diagram (component nodes cap at 3); default: the
    * `visibleRows` render option. Honoured under `compact` too, where nodes otherwise show no rows —
