@@ -34,9 +34,12 @@ back to a built-in layered layout, so it degrades gracefully. `elkjs` is an
 optional peer dependency.
 
 With an engine present, the edge labels a diagram shows (`showEdgeLabels`, or
-information-flow edges) are placed by ELK as inline labels — on a straight run
-of their edge, with room reserved — instead of at the path midpoint, where
-they collide with neighbours. Theme the label backdrop with `--gp-halo`.
+information-flow edges) are placed by ELK with room reserved, instead of at
+the path midpoint where they collide with neighbours. `edgeLabelPlacement`
+picks where: `"center"` (default) inline on the edge, a relationship label,
+which costs a taller layout; `"tail"` or `"head"` beside the edge at its
+source or target, the flowchart convention for decisions, at no extra height.
+Theme the label backdrop with `--gp-halo`.
 
 Where there is no `window` — a server rendering SVG in Node, a test — hand the
 engine in as `layoutEngine`; it takes precedence over the global. Do not fake a

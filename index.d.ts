@@ -154,6 +154,13 @@ export interface DiagramRenderOptions {
   popoverHoverDelayMs?: number;
   visibleRows?: number;
   showEdgeLabels?: boolean;
+  /**
+   * Where ELK puts a shown edge label (ignored by the built-in fallback layout). `"center"`
+   * (default): inline on a straight run of the edge — a relationship label — at the cost of a
+   * taller layout. `"tail"` / `"head"`: beside the edge where it leaves its source / reaches its
+   * target — the flowchart convention for decisions — adding no layers.
+   */
+  edgeLabelPlacement?: "center" | "tail" | "head";
   minWidth?: number;
   minHeight?: number;
   title?: string;

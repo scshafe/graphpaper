@@ -111,11 +111,19 @@ test("shown edge labels are handed to the engine and rendered where it placed th
   assert.equal(sent.length, 1);
   assert.equal(sent[0].text, "goes");
   assert.ok(sent[0].width > 0 && sent[0].height > 0, "the engine gets a box to reserve");
-  assert.equal(sent[0].layoutOptions["elk.edgeLabels.inline"], "true");
+  assert.deepEqual(sent[0].layoutOptions, { "elk.edgeLabels.inline": "true" }, "centre placement is inline by default");
   const key = [...shown.edgePaths.keys()][0];
   assert.deepEqual(shown.edgeLabelBoxes.get(key), { x: 132, y: 127, width: sent[0].width, height: 14 }, "the box comes back offset like the sections");
   const svg = renderDiagramSvg(model, shown, { showEdgeLabels: true });
   assert.ok(svg.includes(`<text class="map-edge-label" x="${(132 + sent[0].width / 2).toFixed(1)}" y="138.0" text-anchor="middle">goes</text>`), "the label is centred in the placed box");
+
+  // Decision-style placement: the label sits beside the edge at its source, adding no layers.
+  engine.calls.length = 0;
+  await layoutDiagram(model, { layoutEngine: engine, showEdgeLabels: true, edgeLabelPlacement: "tail" });
+  assert.deepEqual(engine.calls[0].edges[0].labels[0].layoutOptions, { "elk.edgeLabels.placement": "TAIL" });
+  engine.calls.length = 0;
+  await layoutDiagram(model, { layoutEngine: engine, showEdgeLabels: true, edgeLabelPlacement: "nonsense" });
+  assert.deepEqual(engine.calls[0].edges[0].labels[0].layoutOptions, { "elk.edgeLabels.inline": "true" }, "an unknown placement falls back to centre");
 
   // A label the diagram will not show is not sent to the engine at all, and a layout without
   // boxes renders labels at the path midpoint exactly as before.

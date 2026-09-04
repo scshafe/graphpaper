@@ -259,6 +259,7 @@ function normalizeOptions(options = {}) {
     popoverHoverDelayMs: normalizePopoverHoverDelayMs(options.popoverHoverDelayMs),
     visibleRows: options.visibleRows ?? 5,
     showEdgeLabels: options.showEdgeLabels ?? false,
+    edgeLabelPlacement: ["center", "tail", "head"].includes(options.edgeLabelPlacement) ? options.edgeLabelPlacement : "center",
     minWidth: options.minWidth ?? 680,
     minHeight: options.minHeight ?? 260,
     sourceLabel: options.sourceLabel ?? "ELK layered diagram layout",
@@ -897,11 +898,19 @@ function elkGraphForDiagram(diagram, options) {
   };
 }
 
-// Edge labels the diagram will show are handed to ELK as inline labels, so the layout reserves
-// room for them on a straight run of the edge instead of the renderer dropping them at the path
-// midpoint, where they collide with other edges and nodes. Width is estimated for the 10px label
-// font; the renderer centres the text in the box ELK returns.
+// Edge labels the diagram will show are handed to ELK, so the layout reserves room for them
+// instead of the renderer dropping them at the path midpoint, where they collide with other edges
+// and nodes. Placement follows `edgeLabelPlacement`: "center" (default) puts the label inline on a
+// straight run of the edge — a relationship label — at the cost of a taller layout (each label
+// occupies a layer); "tail" / "head" sit the label beside the edge where it leaves its source /
+// reaches its target, the flowchart convention for decisions, and add no layers. Width is
+// estimated for the 10px label font; the renderer centres the text in the box ELK returns.
 const EDGE_LABEL_MAX_CHARS = 34;
+const EDGE_LABEL_LAYOUT_OPTIONS = {
+  center: { "elk.edgeLabels.inline": "true" },
+  tail: { "elk.edgeLabels.placement": "TAIL" },
+  head: { "elk.edgeLabels.placement": "HEAD" }
+};
 
 function edgeLabelText(edge) {
   return shortRef(edge.label, EDGE_LABEL_MAX_CHARS);
@@ -919,7 +928,7 @@ function elkEdgeLabels(edge, options) {
       text,
       width: Math.ceil(text.length * 5.6 + 6),
       height: 14,
-      layoutOptions: { "elk.edgeLabels.inline": "true" }
+      layoutOptions: { ...EDGE_LABEL_LAYOUT_OPTIONS[options.edgeLabelPlacement] }
     }]
   };
 }
