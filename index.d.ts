@@ -175,7 +175,7 @@ export interface DiagramRenderOptions {
   /** Draw the «type» line and divider at the top of each node (default true). Off: the colour carries the kind and every node shrinks by the band. */
   stereotypes?: boolean;
   /** Colour-key entries, rendered after the SVG as `.diagram-legend` (absent → no legend). The container must be positioned; pan/zoom makes it so. */
-  legend?: DiagramLegendEntry[];
+  legend?: readonly DiagramLegendEntry[];
   /** Heading of the key (default "Key"). */
   legendTitle?: string;
   /** Start with the key shown (default true). enablePanZoom adds a Key button that toggles it and remembers the choice per `diagramId`. */
