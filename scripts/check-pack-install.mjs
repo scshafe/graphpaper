@@ -56,7 +56,7 @@ try {
     join(temporaryRoot, "smoke.mjs"),
     [
       'import assert from "node:assert/strict";',
-      'import * as graphpaper from "graphpaper";',
+      'import * as graphpaper from "@scshafe/graphpaper";',
       'assert.equal(typeof graphpaper.hydrateDiagram, "function");',
       'assert.equal(typeof graphpaper.renderDiagramSvg, "function");',
       'assert.equal(typeof graphpaper.layoutDiagram, "function");'
