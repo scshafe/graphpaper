@@ -5,27 +5,20 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const npmCli = process.env.npm_execpath;
-assert.ok(npmCli, "npm_execpath is required");
-
 const temporaryRoot = await mkdtemp(join(tmpdir(), "graphpaper-pack-"));
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
-function runNpm(arguments_, options = {}) {
-  const result = spawnSync(process.execPath, [npmCli, ...arguments_], {
+function runPnpm(arguments_, options = {}) {
+  const result = spawnSync("pnpm", arguments_, {
     cwd: options.cwd,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      npm_config_audit: "false",
-      npm_config_fund: "false"
-    }
+    env: process.env
   });
   assert.equal(
     result.status,
     0,
     [
-      `npm ${arguments_.join(" ")} failed`,
+      `pnpm ${arguments_.join(" ")} failed`,
       result.stdout,
       result.stderr
     ].filter(Boolean).join("\n")
@@ -34,15 +27,17 @@ function runNpm(arguments_, options = {}) {
 }
 
 try {
-  const packOutput = runNpm([
+  // pnpm pack prints one JSON object (npm printed an array); skip lifecycle
+  // scripts so nothing but the JSON reaches stdout.
+  const packOutput = runPnpm([
     "pack",
     "--json",
+    "--config.ignore-scripts=true",
     "--pack-destination",
     temporaryRoot
   ], { cwd: packageRoot });
   const packResult = JSON.parse(packOutput);
-  assert.equal(packResult.length, 1);
-  const tarball = join(temporaryRoot, packResult[0].filename);
+  const tarball = join(temporaryRoot, packResult.filename.split("/").pop());
 
   await writeFile(
     join(temporaryRoot, "package.json"),
@@ -62,11 +57,10 @@ try {
       'assert.equal(typeof graphpaper.layoutDiagram, "function");'
     ].join("\n")
   );
-  runNpm([
-    "install",
+  runPnpm([
+    "add",
     "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
+    "--offline",
     tarball
   ], { cwd: temporaryRoot });
 

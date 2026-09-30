@@ -12,7 +12,7 @@
     "url": "https://github.com/scshafe/graphpaper/issues"
   },
   "homepage": "https://github.com/scshafe/graphpaper#readme",
-  "packageManager": "npm@10.9.4",
+  "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=22.22.0 <23 || >=24.18.0 <25"
   },
@@ -21,10 +21,10 @@
   "types": "./index.d.ts",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "pack:check": "npm pack --dry-run --json",
+    "pack:check": "pnpm pack --dry-run --json --config.ignore-scripts=true",
     "test:install": "node scripts/check-pack-install.mjs",
-    "verify": "npm test && npm run pack:check && npm run test:install",
-    "prepublishOnly": "npm run verify"
+    "verify": "pnpm run test && pnpm run pack:check && pnpm run test:install",
+    "prepublishOnly": "pnpm run verify"
   },
   "exports": {
     ".": {

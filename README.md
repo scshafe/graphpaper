@@ -298,11 +298,12 @@ See `index.d.ts` for the full `DiagramModel` / `DiagramRenderOptions` types.
 
 ## Development
 
-Use Node.js 22.22.0 and npm 10.9.4:
+Use Node.js 22.22.0 or 24.18.0+ (the `engines` lines) and pnpm 10.34.5 (pinned
+by `packageManager`; `corepack enable` or `pnpm/action-setup` picks it up):
 
 ```bash
-npm ci
-npm run verify
+pnpm install --frozen-lockfile
+pnpm run verify
 ```
 
 The release gate runs the complete test suite, audits the npm payload, packs
