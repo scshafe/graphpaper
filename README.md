@@ -1,4 +1,4 @@
-# graphpaper
+# @scshafe/graphpaper
 
 A small, framework-agnostic diagram renderer. Give it a neutral node/edge
 **`DiagramModel`** and it lays the graph out with [ELK](https://github.com/kieler/elkjs)
@@ -10,10 +10,29 @@ shows its endpoints, label, `description` (the colloquial explanation of the
 relationship), and kind/flavor rows. Each edge renders a wide transparent hit
 path so the 2px stroke is comfortably hoverable.
 
+## Install
+
+The package is published privately to GitHub Packages as `@scshafe/graphpaper`
+(the unscoped `graphpaper` on registry.npmjs.org is an unrelated package). Map
+only the scope in the consuming project's committed `.npmrc`; everything else,
+including the optional `elkjs` peer, still resolves from registry.npmjs.org:
+
+```ini
+@scshafe:registry=https://npm.pkg.github.com
+```
+
+Credentials for `npm.pkg.github.com` (a `read:packages` token) belong in the
+user-level `.npmrc` (in the home directory) or the installing process's environment, never in a
+project file. Consumers pin an exact version:
+
+```bash
+pnpm add --save-exact @scshafe/graphpaper
+```
+
 ## Usage
 
 ```js
-import { hydrateDiagram } from "graphpaper";
+import { hydrateDiagram } from "@scshafe/graphpaper";
 
 await hydrateDiagram(containerEl, {
   id: "demo",
@@ -47,7 +66,7 @@ engine in as `layoutEngine`; it takes precedence over the global. Do not fake a
 
 ```js
 import { createRequire } from "node:module";
-import { layoutDiagram, renderDiagramSvg } from "graphpaper";
+import { layoutDiagram, renderDiagramSvg } from "@scshafe/graphpaper";
 
 const ELK = createRequire(import.meta.url)("elkjs/lib/elk.bundled.js");
 const options = { direction: "DOWN", layoutEngine: new ELK() };
@@ -279,23 +298,39 @@ See `index.d.ts` for the full `DiagramModel` / `DiagramRenderOptions` types.
 
 ## Development
 
-Use Node.js 22.22.0 and npm 10.9.4:
+Use Node.js 22.22.0 or 24.18.0+ (the `engines` lines) and pnpm 10.34.5 (pinned
+by `packageManager`; `corepack enable` or `pnpm/action-setup` picks it up):
 
 ```bash
-npm ci
-npm run verify
+pnpm install --frozen-lockfile
+pnpm run verify
 ```
 
-The release gate runs the complete test suite, audits the npm payload, packs
-the package, installs that tarball into a fresh temporary consumer, and imports
-the public API.
+`verify` is the release gate: the complete test suite, a strict typecheck of
+`index.d.ts`, the exact payload file set, the release manifest
+(`release/scshafe-graphpaper-<version>.payload.sha256`, per-file sha256) with
+pack-twice byte reproducibility and a path/token scan of the tarball, and a
+packed install into a fresh consumer with JS and TypeScript smoke imports.
+`pnpm run test:fresh-clone` repeats it on a clean clone of `HEAD`. A payload
+change (including `package.json`, `README.md` or `CHANGELOG.md`) needs
+`pnpm run release:manifest` in the same commit.
+
+## Releasing
+
+A release is the annotated tag `v<x.y.z>` on a `main` commit whose
+`package.json` version is `<x.y.z>` and whose `CHANGELOG.md` has a
+`## <x.y.z> — <date>` section. `.github/workflows/publish.yml` is the only
+publisher: it refuses any other tag, verifies, publishes to GitHub Packages,
+installs the published version back and compares its integrity with a fresh
+pack, and creates the GitHub Release with the digests. Published versions are
+never deleted or reused; a bad release is superseded by a higher patch.
 
 ## Styling
 
 Import the shipped stylesheet so the visuals travel with the package:
 
 ```js
-import "graphpaper/diagram.css";
+import "@scshafe/graphpaper/diagram.css";
 ```
 
 It's self-contained (sensible dark defaults) and themeable via CSS custom

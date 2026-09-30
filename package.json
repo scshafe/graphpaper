@@ -1,22 +1,34 @@
 {
-  "name": "graphpaper",
-  "version": "0.5.0",
+  "name": "@scshafe/graphpaper",
+  "version": "0.5.1",
   "description": "Framework-agnostic diagram renderer — lay out a neutral node/edge DiagramModel with ELK and render interactive SVG.",
   "type": "module",
   "license": "MIT",
-  "packageManager": "npm@10.9.4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scshafe/graphpaper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scshafe/graphpaper/issues"
+  },
+  "homepage": "https://github.com/scshafe/graphpaper#readme",
+  "packageManager": "pnpm@10.34.5",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0 <23 || >=24.18.0 <25"
   },
   "main": "./src/index.js",
   "module": "./src/index.js",
   "types": "./index.d.ts",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "pack:check": "npm pack --dry-run --json",
+    "typecheck": "tsc --noEmit --strict --skipLibCheck false --target ES2022 --lib ES2022,DOM --module NodeNext --moduleResolution NodeNext index.d.ts",
+    "test:payload": "node scripts/check-package-payload.mjs",
+    "test:release-artifact": "node scripts/check-release-artifact.mjs",
     "test:install": "node scripts/check-pack-install.mjs",
-    "verify": "npm test && npm run pack:check && npm run test:install",
-    "prepublishOnly": "npm run verify"
+    "test:fresh-clone": "node scripts/check-fresh-clone.mjs",
+    "verify": "pnpm run test && pnpm run typecheck && pnpm run test:payload && pnpm run test:release-artifact && pnpm run test:install",
+    "prepublishOnly": "pnpm run verify",
+    "release:manifest": "node scripts/write-release-manifest.mjs"
   },
   "exports": {
     ".": {
@@ -30,8 +42,13 @@
     "src",
     "index.d.ts",
     "diagram.css",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md"
   ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "sideEffects": false,
   "keywords": [
     "diagram",
@@ -49,5 +66,8 @@
     "elkjs": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }
