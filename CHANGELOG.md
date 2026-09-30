@@ -5,6 +5,16 @@ follow [SemVer](https://semver.org/). A release is the annotated tag
 `v<x.y.z>` on a commit on `main` whose `package.json` version is `<x.y.z>`;
 published versions are never deleted, replaced or reused.
 
+## 0.5.2 — 2026-09-30
+
+Release-tooling fix; the library payload is unchanged from 0.5.1 apart from
+`package.json`'s version and this changelog.
+
+- `scripts/check-install-back.mjs` accepts pnpm's peer suffix on the
+  consumer's resolved version (`0.5.1(elkjs@0.10.2)`) and compares the bare
+  version. 0.5.1 was published, but its release job stopped at that check
+  before comparing integrity or creating the GitHub Release; use 0.5.2.
+
 ## 0.5.1 — 2026-09-29
 
 First version published to GitHub Packages. No API or runtime behaviour change
