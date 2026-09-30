@@ -22,7 +22,7 @@ including the optional `elkjs` peer, still resolves from registry.npmjs.org:
 ```
 
 Credentials for `npm.pkg.github.com` (a `read:packages` token) belong in the
-user-level `~/.npmrc` or the installing process's environment, never in a
+user-level `.npmrc` (in the home directory) or the installing process's environment, never in a
 project file. Consumers pin an exact version:
 
 ```bash
@@ -306,9 +306,24 @@ pnpm install --frozen-lockfile
 pnpm run verify
 ```
 
-The release gate runs the complete test suite, audits the npm payload, packs
-the package, installs that tarball into a fresh temporary consumer, and imports
-the public API.
+`verify` is the release gate: the complete test suite, a strict typecheck of
+`index.d.ts`, the exact payload file set, the release manifest
+(`release/scshafe-graphpaper-<version>.payload.sha256`, per-file sha256) with
+pack-twice byte reproducibility and a path/token scan of the tarball, and a
+packed install into a fresh consumer with JS and TypeScript smoke imports.
+`pnpm run test:fresh-clone` repeats it on a clean clone of `HEAD`. A payload
+change (including `package.json`, `README.md` or `CHANGELOG.md`) needs
+`pnpm run release:manifest` in the same commit.
+
+## Releasing
+
+A release is the annotated tag `v<x.y.z>` on a `main` commit whose
+`package.json` version is `<x.y.z>` and whose `CHANGELOG.md` has a
+`## <x.y.z> — <date>` section. `.github/workflows/publish.yml` is the only
+publisher: it refuses any other tag, verifies, publishes to GitHub Packages,
+installs the published version back and compares its integrity with a fresh
+pack, and creates the GitHub Release with the digests. Published versions are
+never deleted or reused; a bad release is superseded by a higher patch.
 
 ## Styling
 
