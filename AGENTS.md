@@ -17,7 +17,9 @@ It is published to GitHub Packages and deploys nothing. Read `README.md`,
   stays byte-identical to what it was before the option existed.
 - `index.d.ts` is hand-written and ships as the `types` condition; keep it in
   step with `src/index.js` exports (`pnpm run typecheck`, the TS smoke).
-- No build step: `src/`, `index.d.ts` and `diagram.css` ship as written.
+- No build step: `src/`, `index.d.ts` and `diagram.css` ship as written
+  (`pnpm run build` is a no-op the release scripts call; `clean` removes
+  nothing).
 - Toolchain is pnpm, pinned by `packageManager` (`pnpm@10.34.5`), with
   `pnpm-lock.yaml` committed and `strictDepBuilds: true`. Do not add
   `package-lock.json`.
@@ -27,6 +29,12 @@ It is published to GitHub Packages and deploys nothing. Read `README.md`,
   `release/scshafe-graphpaper-<version>.payload.sha256` pins every packed
   file's sha256. A payload change (including `package.json`, `README.md` or
   `CHANGELOG.md`) needs `pnpm run release:manifest` in the same commit.
+- `scripts/*.mjs` other than `scripts/release.config.mjs` are verbatim copies
+  of scshafe-dev's master release scripts, and `ci.yml`/`publish.yml` are the
+  master's renders. Do not edit them here; change `release.config.mjs`, or
+  change the master and re-sync (`dev check --diff`). The packed-install
+  smokes are `test/smoke/` (base, no `elkjs`) and `test/smoke/elk/` (the
+  optional-peer phase); `elkjs` is pinned for them as an exact devDependency.
 - Consumer and smoke imports use the scoped specifiers `@scshafe/graphpaper`
   and `@scshafe/graphpaper/diagram.css`. The unscoped `graphpaper` on
   registry.npmjs.org is an unrelated package.

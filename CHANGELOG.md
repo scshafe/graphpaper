@@ -5,6 +5,20 @@ follow [SemVer](https://semver.org/). A release is the annotated tag
 `v<x.y.z>` on a commit on `main` whose `package.json` version is `<x.y.z>`;
 published versions are never deleted, replaced or reused.
 
+## Unreleased
+
+Release tooling only; `src/index.js`, `index.d.ts` and `diagram.css` are
+unchanged.
+
+- The release scripts and workflows are re-synced to the scshafe-dev master
+  kit (verbatim copies; repository inputs in `scripts/release.config.mjs`).
+  The packed-install smokes moved to `test/smoke/`, and a second phase adds
+  the optional `elkjs` peer and lays out with an injected ELK engine; the
+  base phase proves `elkjs` is absent.
+- `package.json`: `elkjs` 0.10.2 is an exact devDependency (the version the
+  smokes verify against; the peer range is unchanged), plus `build` (a no-op:
+  nothing is built) and `clean` scripts the master scripts call.
+
 ## 0.5.2 — 2026-09-30
 
 Release-tooling fix; the library payload is unchanged from 0.5.1 apart from

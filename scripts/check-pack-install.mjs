@@ -1,25 +1,48 @@
-// Pack the package with pnpm (the packer `pnpm publish` uses), install the
-// tarball into an empty consumer, and run JS and TypeScript smoke imports
-// against the installed copy by its published name. Structure ported from
-// @scshafe/mission-pipeline (scripts/check-pack-install.mjs).
+// scshafe-dev release script. Master copy: scshafe/scshafe-dev
+// release/scripts/check-pack-install.mjs, copied verbatim into each library
+// by `dev new` (D-5). Do not edit it in a library: the package's own smokes
+// live in test/smoke/, the peer phases in scripts/release.config.mjs.
 //
-// With GRAPHPAPER_SMOKE_CONSUMER set to a directory that already has the
-// package installed (the publish workflow's install-back of the registry
-// version), skip pack+install and run the same smokes there.
+// Pack the package, install the tarball into an empty consumer next to its
+// peers at the exact versions this tree is verified against, and run smokes
+// against the install, not the source tree:
+//
+//   - identity: the installed package.json has this name and version, and the
+//     unscoped name (an unrelated npmjs.org package, perhaps) does not resolve;
+//   - peers: every base-phase peer is a direct, exact dependency of the
+//     consumer and resolves from it; no optional-phase peer is installed or
+//     resolvable (pnpm 10 auto-installs optional peers unless told not to);
+//   - JS: each test/smoke/*.smoke.mjs runs in the consumer (with this Node);
+//   - TypeScript: test/smoke/*.smoke.ts typecheck against the shipped .d.ts.
+//
+// then, for each optional-peer phase in release.config.mjs, add that phase's
+// peers and run test/smoke/<phase>/ the same way.
+//
+// With RELEASE_SMOKE_CONSUMER set to a directory that already has the package
+// and its peers installed (the publish workflow's install-back of the registry
+// version), skip pack+install and run one phase there, named by
+// RELEASE_SMOKE_PHASE ("base" or a phase name).
 
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PNPM_PACK_ARGS, singlePackReport } from "./release-identity.mjs";
+import {
+  PNPM_PACK_ARGS,
+  phaseNames,
+  projectRoot as root,
+  readReleaseConfig,
+  readReleaseIdentity,
+  singlePackReport,
+  smokePeerSpecs,
+  unscopedName
+} from "./release-identity.mjs";
 
-const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
-const installedConsumer = process.env.GRAPHPAPER_SMOKE_CONSUMER;
-const scratch = installedConsumer
-  ? undefined
-  : await mkdtemp(join(tmpdir(), "graphpaper-pack-"));
+const identity = await readReleaseIdentity(root);
+const config = await readReleaseConfig(root);
+const installedConsumer = process.env.RELEASE_SMOKE_CONSUMER;
+const scratch = installedConsumer ? undefined : await mkdtemp(join(tmpdir(), `${identity.base}-pack-`));
 
 async function run(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -37,7 +60,13 @@ async function run(command, args, options = {}) {
   return stdout;
 }
 
-async function packAndInstall() {
+async function pnpmStoreDir() {
+  // The scratch consumer may sit on another filesystem (tmpdir), where pnpm
+  // would pick a different, empty store; reuse the project's store.
+  return (await run("pnpm", ["store", "path"], { capture: true })).trim();
+}
+
+async function packAndInstall(peers) {
   const packed = singlePackReport(await run("pnpm", [
     ...PNPM_PACK_ARGS,
     "--pack-destination",
@@ -50,130 +79,172 @@ async function packAndInstall() {
     join(consumer, "package.json"),
     `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`
   );
+  // The scope line only: @scshafe peers come from GitHub Packages with the
+  // user's (or the job's) read token, never from registry.npmjs.org.
+  await copyFile(resolve(root, ".npmrc"), join(consumer, ".npmrc"));
   await run("pnpm", [
     "add",
+    // pnpm 10 auto-installs optional peers too (auto-install-peers=true); the
+    // base consumer gets exactly the peers listed here (scshafe-ui 0.3.0).
+    "--config.auto-install-peers=false",
     "--ignore-scripts",
-    "--offline",
-    join(scratch, packed.basename)
+    "--prefer-offline",
+    "--store-dir",
+    await pnpmStoreDir(),
+    "--save-exact",
+    join(scratch, packed.basename),
+    ...peers.map((peer) => peer.spec)
   ], { cwd: consumer });
   return consumer;
 }
 
-try {
-  const consumer = installedConsumer === undefined
-    ? await packAndInstall()
-    : resolve(installedConsumer);
-
-  const packageJson = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-  const smoke = `
-    import assert from "node:assert/strict";
-    import { existsSync } from "node:fs";
-    import { fileURLToPath } from "node:url";
-    import * as graphpaper from "@scshafe/graphpaper";
-    import metadata from "@scshafe/graphpaper/package.json" with { type: "json" };
-
-    for (const name of [
-      "hydrateDiagram",
-      "layoutDiagram",
-      "renderDiagramSvg",
-      "renderDiagramLegend",
-      "cleanupHydratedDiagram",
-      "enablePanZoom",
-      "disablePanZoom",
-      "selectDiagramNode",
-      "clearDiagramNodeSelection",
-      "selectedDiagramNodeId",
-      "bindDiagramInteractions"
-    ]) {
-      assert.equal(typeof graphpaper[name], "function", name);
-    }
-    assert.equal(metadata.name, "@scshafe/graphpaper");
-    assert.equal(metadata.version, ${JSON.stringify(packageJson.version)});
-
-    // Server-side render with no window and no ELK: the built-in layered
-    // fallback lays out and renders SVG markup.
-    const model = {
-      id: "install-smoke",
-      title: "Install smoke",
-      nodes: [
-        { id: "api", title: "API", type: "service", status: "active" },
-        { id: "db", title: "Postgres", type: "database" }
-      ],
-      edges: [{ from: "api", to: "db", label: "reads/writes" }]
-    };
-    const layout = await graphpaper.layoutDiagram(model, { direction: "RIGHT" });
-    const markup = graphpaper.renderDiagramSvg(model, layout, { direction: "RIGHT" });
-    assert.match(markup, /<svg[\\s>]/);
-    assert.ok(markup.includes("Postgres"));
-
-    const css = fileURLToPath(import.meta.resolve("@scshafe/graphpaper/diagram.css"));
-    assert.ok(existsSync(css), "diagram.css export resolves to a file");
-
-    // The unscoped name is an unrelated registry.npmjs.org package; it must
-    // not resolve here.
-    await assert.rejects(import("graphpaper"));
-  `;
-  await writeFile(join(consumer, "smoke.mjs"), smoke);
-  await run("node", ["smoke.mjs"], { cwd: consumer });
-
-  const typeSmoke = `
-    import {
-      hydrateDiagram,
-      layoutDiagram,
-      renderDiagramSvg,
-      selectDiagramNode,
-      type DiagramLayout,
-      type DiagramModel,
-      type DiagramModelInput,
-      type DiagramRenderOptions,
-      type PanZoomOptions
-    } from "@scshafe/graphpaper";
-
-    const model: DiagramModel = {
-      id: "types",
-      title: "Types",
-      nodes: [{ id: "a", title: "A" }],
-      edges: []
-    };
-    // 0.5.x: an interface-typed DiagramModel lacks DiagramModelInput's index
-    // signature (a known index.d.ts gap), so the smoke passes a literal.
-    const input: DiagramModelInput = { id: model.id, title: model.title, nodes: model.nodes, edges: model.edges };
-    const options: DiagramRenderOptions = { direction: "DOWN" };
-    const layout: Promise<DiagramLayout> = layoutDiagram(input, options);
-    const render: (m: DiagramModelInput, l: DiagramLayout) => string = renderDiagramSvg;
-    const hydrate: (c: Element, m: DiagramModelInput) => Promise<void> = hydrateDiagram;
-    const panZoom = undefined as unknown as PanZoomOptions;
-    // @ts-expect-error renderDiagramSvg needs a layout
-    renderDiagramSvg(model);
-    // @ts-expect-error a node id is a string
-    selectDiagramNode(null, 1);
-    void layout;
-    void render;
-    void hydrate;
-    void panZoom;
-  `;
-  await writeFile(join(consumer, "smoke.ts"), typeSmoke);
-  await writeFile(join(consumer, "tsconfig.json"), `${JSON.stringify({
-    compilerOptions: {
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      target: "ES2022",
-      lib: ["ES2022", "DOM"],
-      strict: true,
-      noEmit: true,
-      skipLibCheck: false
-    },
-    files: ["smoke.ts"]
-  }, null, 2)}\n`);
-  await run(process.execPath, [
-    resolve(root, "node_modules/typescript/bin/tsc"),
-    "--project",
-    "tsconfig.json"
+async function addPeers(consumer, peers) {
+  await run("pnpm", [
+    "add", "--config.auto-install-peers=false", "--ignore-scripts", "--prefer-offline",
+    "--store-dir", await pnpmStoreDir(), "--save-exact",
+    ...peers.map((peer) => peer.spec)
   ], { cwd: consumer });
+}
+
+async function consumerJson(consumer) {
+  return JSON.parse(await readFile(join(consumer, "package.json"), "utf8"));
+}
+
+async function probe(consumer, fileName, source) {
+  await writeFile(join(consumer, fileName), source);
+  await run(process.execPath, [fileName], { cwd: consumer });
+}
+
+// Every peer of this phase is a direct, exact dependency of the consumer and
+// resolves from it: a peer pnpm only auto-installs is not importable from the
+// consumer itself (switchyard-postgres 0.1.0's release job).
+async function assertDirectPeers(consumer, peers) {
+  const json = await consumerJson(consumer);
+  const wrong = peers.filter((peer) => json.dependencies?.[peer.name] !== peer.version);
+  if (wrong.length > 0) {
+    throw new Error(
+      `consumer ${consumer} must depend directly on ${wrong.map((peer) => peer.spec).join(", ")}` +
+      ` (found ${JSON.stringify(json.dependencies ?? {})}); install the peers next to ${identity.name}`
+    );
+  }
+  if (peers.length === 0) return;
+  await probe(consumer, "peers-probe.mjs", `
+    const missing = [];
+    for (const name of ${JSON.stringify(peers.map((peer) => peer.name))}) {
+      let found = false;
+      for (const specifier of [name, name + "/package.json"]) {
+        try { import.meta.resolve(specifier); found = true; break; } catch {}
+      }
+      if (!found) missing.push(name);
+    }
+    if (missing.length > 0) throw new Error("peers not resolvable from the consumer: " + missing.join(", "));
+  `);
+}
+
+// Peers of optional phases not yet added must be absent: neither dependencies
+// of, nor resolvable from, the consumer.
+async function assertAbsentPeers(consumer, peers) {
+  if (peers.length === 0) return;
+  const json = await consumerJson(consumer);
+  const present = peers.filter((peer) => json.dependencies?.[peer.name] !== undefined);
+  if (present.length > 0) throw new Error(`consumer must not depend on ${present.map((peer) => peer.name).join(", ")} yet`);
+  await probe(consumer, "absent-probe.mjs", `
+    const found = [];
+    for (const name of ${JSON.stringify(peers.map((peer) => peer.name))}) {
+      try { import.meta.resolve(name); found.push(name); } catch {}
+    }
+    if (found.length > 0) throw new Error("optional peers resolvable before their phase: " + found.join(", "));
+  `);
+}
+
+async function assertIdentity(consumer) {
+  await probe(consumer, "identity-probe.mjs", `
+    import { readFileSync } from "node:fs";
+    import { fileURLToPath } from "node:url";
+    const metadata = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve(${JSON.stringify(`${identity.name}/package.json`)})), "utf8"));
+    if (metadata.name !== ${JSON.stringify(identity.name)} || metadata.version !== ${JSON.stringify(identity.version)}) {
+      throw new Error("installed identity " + metadata.name + "@" + metadata.version + " is not ${identity.name}@${identity.version}");
+    }
+    // The unscoped name is not this package (it may be an unrelated public
+    // package on registry.npmjs.org) and must not resolve here.
+    let resolved = true;
+    try { import.meta.resolve(${JSON.stringify(unscopedName(identity.name))}); } catch { resolved = false; }
+    if (resolved) throw new Error("the unscoped name ${unscopedName(identity.name)} resolves in the consumer");
+  `);
+}
+
+async function smokeFiles(directory) {
+  const entries = await readdir(resolve(root, directory), { withFileTypes: true }).catch(() => []);
+  const files = entries.filter((entry) => entry.isFile()).map((entry) => entry.name).sort();
+  return {
+    js: files.filter((file) => file.endsWith(".smoke.mjs")),
+    ts: files.filter((file) => file.endsWith(".smoke.ts"))
+  };
+}
+
+async function runSmokes(consumer, phase) {
+  const directory = phase === "base" ? "test/smoke" : `test/smoke/${phase}`;
+  const { js, ts } = await smokeFiles(directory);
+  if (phase === "base" && js.length === 0) {
+    throw new Error("test/smoke has no *.smoke.mjs: the packed package is never imported");
+  }
+  const target = join(consumer, phase === "base" ? "smoke" : `smoke-${phase}`);
+  await mkdir(target, { recursive: true });
+  for (const file of [...js, ...ts]) await copyFile(resolve(root, directory, file), join(target, file));
+  for (const file of js) {
+    await run(process.execPath, [join(target, file)], { cwd: consumer });
+  }
+  if (ts.length > 0) {
+    const tsconfig = join(consumer, `tsconfig.${phase}.json`);
+    await writeFile(tsconfig, `${JSON.stringify({
+      compilerOptions: {
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        target: "ES2022",
+        lib: config.typeSmokeLib,
+        strict: true,
+        noEmit: true,
+        skipLibCheck: config.typeSmokeSkipLibCheck,
+        types: []
+      },
+      files: ts.map((file) => join(target, file))
+    }, null, 2)}\n`);
+    await run(process.execPath, [
+      resolve(root, "node_modules/typescript/bin/tsc"),
+      "--project",
+      tsconfig
+    ], { cwd: consumer });
+  }
+  console.log(`${identity.name} ${phase} smokes passed (${js.length} JS, ${ts.length} TypeScript).`);
+}
+
+try {
+  const phases = phaseNames(config);
+  const base = smokePeerSpecs(identity.packageJson, config, "base");
+  const optional = Object.fromEntries(phases.map((phase) => [phase, smokePeerSpecs(identity.packageJson, config, phase)]));
+  const requested = installedConsumer === undefined ? undefined : process.env.RELEASE_SMOKE_PHASE;
+  if (installedConsumer !== undefined && !["base", ...phases].includes(requested)) {
+    throw new Error(`with RELEASE_SMOKE_CONSUMER, set RELEASE_SMOKE_PHASE to one of ${["base", ...phases].join(", ")}`);
+  }
+  const consumer = installedConsumer === undefined ? await packAndInstall(base) : resolve(installedConsumer);
+  const run_phases = requested === undefined ? ["base", ...phases] : [requested];
+  const added = [];
+  for (const phase of run_phases) {
+    if (phase === "base") {
+      await assertIdentity(consumer);
+      await assertDirectPeers(consumer, base);
+      await assertAbsentPeers(consumer, Object.values(optional).flat());
+    } else {
+      if (installedConsumer === undefined) await addPeers(consumer, optional[phase]);
+      added.push(...optional[phase]);
+      await assertDirectPeers(consumer, [...base, ...added]);
+    }
+    await runSmokes(consumer, phase);
+  }
   console.log(
     installedConsumer === undefined
-      ? "Graphpaper packed-install runtime + TypeScript smoke passed."
-      : `Graphpaper installed-consumer runtime + TypeScript smoke passed (${consumer}).`
+      ? `${identity.name} packed-install smokes passed (${run_phases.join(", ")}).`
+      : `${identity.name} installed-consumer ${requested} smokes passed (${consumer}).`
   );
 } finally {
   if (scratch !== undefined) await rm(scratch, { force: true, recursive: true });

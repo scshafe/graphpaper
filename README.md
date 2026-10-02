@@ -310,8 +310,10 @@ pnpm run verify
 `index.d.ts`, the exact payload file set, the release manifest
 (`release/scshafe-graphpaper-<version>.payload.sha256`, per-file sha256) with
 pack-twice byte reproducibility and a path/token scan of the tarball, and a
-packed install into a fresh consumer with JS and TypeScript smoke imports.
-`pnpm run test:fresh-clone` repeats it on a clean clone of `HEAD`. A payload
+packed install into a fresh consumer with JS and TypeScript smoke imports
+(`test/smoke/`, with no `elkjs`: the fallback layout), then the same consumer
+with the optional `elkjs` peer added (`test/smoke/elk/`: an injected ELK
+engine). `pnpm run test:fresh-clone` repeats it on a clean clone of `HEAD`. A payload
 change (including `package.json`, `README.md` or `CHANGELOG.md`) needs
 `pnpm run release:manifest` in the same commit.
 
