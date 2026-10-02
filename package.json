@@ -20,6 +20,8 @@
   "module": "./src/index.js",
   "types": "./index.d.ts",
   "scripts": {
+    "build": "node -e \"console.log('graphpaper has no build step: src/, index.d.ts and diagram.css ship as written')\"",
+    "clean": "node scripts/clean.mjs",
     "test": "node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit --strict --skipLibCheck false --target ES2022 --lib ES2022,DOM --module NodeNext --moduleResolution NodeNext index.d.ts",
     "test:payload": "node scripts/check-package-payload.mjs",
@@ -68,6 +70,7 @@
     }
   },
   "devDependencies": {
+    "elkjs": "0.10.2",
     "typescript": "^5.9.3"
   }
 }

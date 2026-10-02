@@ -1,15 +1,18 @@
+// scshafe-dev release script. Master copy: scshafe/scshafe-dev
+// release/scripts/write-release-manifest.mjs, copied verbatim into each
+// library by `dev new` (D-5). Do not edit it in a library.
+//
 // Write release/<scope>-<name>-<version>.payload.sha256 from a fresh pack:
 // one line per packed entry, `<sha256>  <path>`, in code-unit path order. The
 // digests are taken from the packed bytes exactly as check-release-artifact.mjs
 // reads them back, so the manifest and the check cannot disagree about what a
-// release contains. Run before committing any payload change (package.json,
-// README.md, CHANGELOG.md, src/, index.d.ts, diagram.css); the check then
-// pins it. Ported from @scshafe/mission-pipeline, single package only.
+// release contains. Run after `build` and before committing a payload change;
+// the check then pins it.
 
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -19,7 +22,8 @@ import {
   singlePackReport
 } from "./release-identity.mjs";
 
-const scratch = await mkdtemp(join(tmpdir(), "graphpaper-manifest-"));
+const identity = await readReleaseIdentity(root);
+const scratch = await mkdtemp(join(tmpdir(), `${identity.base}-manifest-`));
 
 async function run(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -44,15 +48,7 @@ async function run(command, args, options = {}) {
   return stdout;
 }
 
-try {
-  const identity = await readReleaseIdentity(root);
-  const report = singlePackReport(
-    await run("pnpm", [...PNPM_PACK_ARGS, "--pack-destination", scratch])
-  );
-  if (report.name !== identity.name || report.version !== identity.version) {
-    throw new Error("packed identity does not match package.json");
-  }
-  const tarball = join(scratch, report.basename);
+async function manifestLines(tarball) {
   const entries = (await run("tar", ["-tzf", tarball]))
     .trim()
     .split(/\r?\n/)
@@ -75,8 +71,20 @@ try {
     const content = await run("tar", ["-xOzf", tarball, `package/${path}`]);
     lines.push(`${createHash("sha256").update(Buffer.from(content, "utf8")).digest("hex")}  ${path}`);
   }
+  return lines;
+}
+
+try {
+  const report = singlePackReport(
+    await run("pnpm", [...PNPM_PACK_ARGS, "--pack-destination", scratch])
+  );
+  if (report.name !== identity.name || report.version !== identity.version) {
+    throw new Error("packed identity does not match package.json");
+  }
+  const lines = await manifestLines(join(scratch, report.basename));
+  await mkdir(resolve(root, "release"), { recursive: true });
   await writeFile(resolve(root, identity.manifest), `${lines.join("\n")}\n`, "utf8");
-  console.log(JSON.stringify({ result: "written", manifest: identity.manifest, fileCount: entries.length }));
+  console.log(JSON.stringify({ result: "written", manifest: identity.manifest, fileCount: lines.length }));
 } finally {
   await rm(scratch, { force: true, recursive: true });
 }
