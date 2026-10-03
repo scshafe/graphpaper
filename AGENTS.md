@@ -65,3 +65,12 @@ CI (`.github/workflows/ci.yml`) runs the same `verify` on the Node matrix in
   with a changelog note.
 - No prereleases in v1; co-development with consumers uses `pnpm link`, which
   must never be committed in a consumer.
+
+## Agent identity
+
+This repository has its own agent user, `agent-graphpaper`, on the owner's Arch
+workstation (scshafe/infra `docs/platform/agent-identity.md`). It works in its
+own clone and commits and opens PRs as `scshafe-agent[bot]`. The broker gives it
+one-hour tokens for `scshafe/graphpaper` only, declared in `dev.toml
+[identity]`. Other projects are reachable only through their public code or an
+issue on their repository.
