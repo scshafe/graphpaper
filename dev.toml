@@ -29,3 +29,9 @@ released = true
 dirty = false
 mode = "adopted"
 params = { kind = "library", name = "graphpaper", description = "Framework-agnostic diagram renderer — lay out a neutral node/edge DiagramModel with ELK and render interactive SVG.", peers = ["elkjs@^0.10.2"], deps = [], date = "2026-09-30" }
+
+# IDENT-01: what this project's agent may do (scshafe/infra docs/platform/agent-identity.md).
+# References, never secrets. `dev identity plan` compares it with the host and GitHub.
+[identity]
+agent = "agent-graphpaper"
+github = ["contents=write", "pull_requests=write", "issues=write", "workflows=write", "actions=write"]
