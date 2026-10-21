@@ -5,10 +5,17 @@ follow [SemVer](https://semver.org/). A release is the annotated tag
 `v<x.y.z>` on a commit on `main` whose `package.json` version is `<x.y.z>`;
 published versions are never deleted, replaced or reused.
 
-## Unreleased
+## 0.5.3 — 2026-10-21
 
-Release tooling only; `src/index.js`, `index.d.ts` and `diagram.css` are
-unchanged.
+Security floor for the Node.js 2026-10-21 security releases (CVE-2026-111497
+Brotli decoder, CVE-2026-105483 / CVE-2026-106069 TLS hostname checks,
+CVE-2026-105482 `dns.resolve`, plus OpenSSL, undici and c-ares updates).
+`src/index.js`, `index.d.ts` and `diagram.css` are unchanged.
+
+- `engines.node` is `>=22.23.4 <23 || >=24.22.1 <25`, the patched releases of
+  both lines; CI tests those endpoints and `.node-version` is 24.22.1.
+
+Release tooling, first published in this version:
 
 - The release scripts and workflows are re-synced to the scshafe-dev master
   kit (verbatim copies; repository inputs in `scripts/release.config.mjs`).
