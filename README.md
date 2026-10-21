@@ -298,8 +298,9 @@ See `index.d.ts` for the full `DiagramModel` / `DiagramRenderOptions` types.
 
 ## Development
 
-Use Node.js 22.22.0 or 24.18.0+ (the `engines` lines) and pnpm 10.34.5 (pinned
-by `packageManager`; `corepack enable` or `pnpm/action-setup` picks it up):
+Use Node.js 22.23.4+ (22.x) or 24.22.1+ (24.x), the `engines` lines, and pnpm
+10.34.5 (pinned by `packageManager`; `corepack enable` or `pnpm/action-setup`
+picks it up):
 
 ```bash
 pnpm install --frozen-lockfile
